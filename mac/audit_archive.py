@@ -49,7 +49,7 @@ def audit(root: Path, application_tests: int, archive_path: Path | None = None) 
             raise ValueError("Archive runtime metadata differs from package.json")
 
         source_hashes = {}
-        source_files = [root / "server.cjs", root / "mac" / "main.cjs", root / "mac" / "runtime.cjs", root / "config" / "channels.json"]
+        source_files = [root / "server.cjs", root / "mac" / "main.cjs", root / "mac" / "runtime.cjs", root / "mac" / "preload.cjs", root / "mac" / "updates.cjs", root / "config" / "channels.json"]
         if (root / "LICENSE").is_file():
             source_files.append(root / "LICENSE")
         source_files.extend((root / "lib").glob("*.cjs"))

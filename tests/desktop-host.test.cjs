@@ -5,8 +5,11 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const net = require('node:net');
+const http = require('node:http');
+const os = require('node:os');
 const { spawn } = require('node:child_process');
-const { start, stop, probeHealth } = require('../launch.cjs');
+const { start, stop, probeHealth, runtimeDirectory } = require('../launch.cjs');
+const { version } = require('../package.json');
 
 const ROOT = path.resolve(__dirname, '..');
 const pause = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
@@ -15,6 +18,7 @@ const evidence = {
   scope: 'Isolated loopback ports only; production port 8767 was not read or modified; no UI launched.',
   tests: [],
 };
+let lifecycleCount = 0;
 
 async function deadline(promise, description, milliseconds = 16000) {
   let timer;
@@ -37,10 +41,10 @@ async function unusedPort() {
   return port;
 }
 
-function runHost(port) {
+function runHost(port, runtime) {
   const child = spawn(process.execPath, [path.join(ROOT, 'desktop', 'host.cjs')], {
     cwd: ROOT,
-    env: { ...process.env, CHANNEL_ROOM_HOST: '127.0.0.1', CHANNEL_ROOM_PORT: String(port) },
+    env: { ...process.env, CHANNEL_ROOM_HOST: '127.0.0.1', CHANNEL_ROOM_PORT: String(port), ...(runtime ? { CHANNEL_ROOM_RUNTIME_DIR: runtime } : {}) },
     windowsHide: true,
     stdio: ['pipe', 'pipe', 'pipe'],
   });
@@ -93,11 +97,13 @@ async function cleanup(context) {
   const health = await probeHealth(context.port);
   // Only PIDs observed while starting a server in this test are eligible.
   if (health && context.ownedPids.has(health.pid)) {
-    await stop({ port: context.port, expectedPid: health.pid });
+    await stop({ port: context.port, expectedPid: health.pid, runtimeDirectory: context.runtimeDirectory });
   }
+  if (context.runtimeDirectory) await fs.rm(context.runtimeDirectory, { recursive: true, force: true });
 }
 
 function lifecycleTest(name, body) {
+  lifecycleCount++;
   test(name, { timeout: 35000 }, async () => {
     const context = { port: await unusedPort(), ownedPids: new Set(), host: null };
     let result;
@@ -119,6 +125,8 @@ for (const mode of ['command close', 'stdin EOF', 'EOF during startup']) {
       assert.equal((await awaitReady(context.host)).ownsServer, true);
       const health = await probeHealth(context.port);
       assert.equal(health.application, 'channel-room');
+      assert.equal(health.version, version);
+      assert.equal(health.directory, ROOT);
       serverPid = health.pid;
       context.ownedPids.add(serverPid);
     }
@@ -128,6 +136,7 @@ for (const mode of ['command close', 'stdin EOF', 'EOF during startup']) {
     assert.equal(exited.code, 0, context.host.stderr());
     assert.equal(await probeHealth(context.port), null);
     assert.deepEqual(context.host.messages.filter(message => message.type === 'cleanup-error'), []);
+    assert.deepEqual(context.host.messages.find(message => message.type === 'closed'), { type: 'closed', success: true, ownsServer: true, stopped: true });
     return { ownedServerPid: serverPid, hostExitCode: exited.code, serverStopped: true };
   });
 }
@@ -142,6 +151,7 @@ lifecycleTest('desktop bridge preserves a preexisting server it reused', async c
   const exited = await deadline(context.host.exited, 'reused bridge close');
   assert.equal(exited.code, 0);
   assert.equal((await probeHealth(context.port)).pid, existing.pid);
+  assert.deepEqual(context.host.messages.find(message => message.type === 'closed'), { type: 'closed', success: true, ownsServer: false, stopped: false });
   return { preexistingServerPid: existing.pid, hostExitCode: exited.code, serverPreserved: true };
 });
 
@@ -159,11 +169,86 @@ lifecycleTest('desktop bridge preserves a replacement for its original server', 
   const exited = await deadline(context.host.exited, 'replaced bridge close');
   assert.equal(exited.code, 0);
   assert.equal((await probeHealth(context.port)).pid, replacement.pid);
+  assert.deepEqual(context.host.messages.find(message => message.type === 'closed'), { type: 'closed', success: true, ownsServer: true, stopped: false });
   return { originalServerPid: original.pid, replacementServerPid: replacement.pid, serverPreserved: true };
 });
 
+lifecycleTest('desktop bridge reports cleanup failure without approving an update', async context => {
+  context.host = runHost(context.port);
+  assert.equal((await awaitReady(context.host)).ownsServer, true);
+  const original = await probeHealth(context.port);
+  context.ownedPids.add(original.pid);
+  const recordFile = path.join(ROOT, '.runtime', `server-${context.port}.json`);
+  const recordText = await fs.readFile(recordFile, 'utf8');
+  const mismatched = JSON.parse(recordText);
+  mismatched.directory = path.join(ROOT, 'another-installation');
+  await fs.writeFile(recordFile, JSON.stringify(mismatched));
+  try {
+    context.host.child.stdin.end();
+    const exited = await deadline(context.host.exited, 'cleanup rejection');
+    assert.equal(exited.code, 1, 'A failed cleanup must not report a successful bridge exit.');
+    assert.equal(context.host.messages.filter(message => message.type === 'cleanup-error').length, 1);
+    assert.deepEqual(context.host.messages.find(message => message.type === 'closed'), { type: 'closed', success: false, ownsServer: true, stopped: false });
+    assert.equal((await probeHealth(context.port)).pid, original.pid, 'An identity mismatch must leave the server running.');
+    return { cleanupFailureAcknowledged: true, serverPreserved: true };
+  } finally { await fs.writeFile(recordFile, recordText); }
+});
+
+for (const mismatch of ['version', 'directory']) {
+  lifecycleTest(`launcher rejects a server from another ${mismatch} without stopping it`, async context => {
+    const fixture = http.createServer((_request, response) => {
+      response.setHeader('Content-Type', 'application/json');
+      response.end(JSON.stringify({
+        application: 'channel-room', pid: process.pid, host: '127.0.0.1', port: context.port,
+        version: mismatch === 'version' ? `${version}.legacy` : version,
+        directory: mismatch === 'directory' ? path.join(ROOT, 'another-installation') : ROOT,
+      }));
+    });
+    await new Promise((resolve, reject) => { fixture.once('error', reject); fixture.listen(context.port, '127.0.0.1', resolve); });
+    try {
+      await assert.rejects(start({ open: false, port: context.port }), /Another version or installation/);
+      assert.equal((await probeHealth(context.port)).pid, process.pid, 'The unrelated listener must remain available.');
+      await assert.rejects(fs.stat(path.join(ROOT, '.runtime', `server-${context.port}.json`)), { code: 'ENOENT' });
+      return { mismatch, listenerPreserved: true };
+    } finally { await new Promise(resolve => fixture.close(resolve)); }
+  });
+}
+
+lifecycleTest('desktop runtime and saved profile remain outside versioned application files', async context => {
+  context.runtimeDirectory = await fs.mkdtemp(path.join(os.tmpdir(), 'charliflix-stable-user-data-'));
+  const relative = path.relative(ROOT, context.runtimeDirectory);
+  assert(path.isAbsolute(relative) || relative === '..' || relative.startsWith(`..${path.sep}`), 'The profile fixture must be outside the application directory.');
+  const profile = path.join(context.runtimeDirectory, 'desktop-profile');
+  const marker = path.join(profile, 'saved-settings.txt');
+  await fs.mkdir(profile);
+  await fs.writeFile(marker, 'existing channel and volume settings');
+  context.host = runHost(context.port, context.runtimeDirectory);
+  const ready = await awaitReady(context.host);
+  assert.equal(ready.version, version);
+  assert.equal(ready.directory, ROOT);
+  assert.equal(ready.runtimeDirectory, context.runtimeDirectory);
+  const health = await probeHealth(context.port);
+  context.ownedPids.add(health.pid);
+  const record = JSON.parse(await fs.readFile(path.join(context.runtimeDirectory, `server-${context.port}.json`), 'utf8'));
+  assert.equal(record.directory, ROOT);
+  assert.equal(record.version, version);
+  await fs.stat(path.join(context.runtimeDirectory, `server-${context.port}.log`));
+  await assert.rejects(fs.stat(path.join(ROOT, '.runtime', `server-${context.port}.json`)), { code: 'ENOENT' });
+  context.host.child.stdin.end();
+  assert.equal((await deadline(context.host.exited, 'stable user-data bridge close')).code, 0);
+  assert.equal(await probeHealth(context.port), null);
+  await assert.rejects(fs.stat(path.join(context.runtimeDirectory, `server-${context.port}.json`)), { code: 'ENOENT' });
+  assert.equal(await fs.readFile(marker, 'utf8'), 'existing channel and volume settings');
+  return { profilePreserved: true, serverStopped: true, externalRuntimeDirectory: context.runtimeDirectory };
+});
+
+test('runtime directory override rejects relative paths', () => {
+  assert.throws(() => runtimeDirectory('relative-user-data'), /absolute directory/);
+  assert.throws(() => runtimeDirectory(''), /absolute directory/);
+});
+
 test.after(async () => {
-  evidence.passed = evidence.tests.length === 5 && evidence.tests.every(result => result.passed);
+  evidence.passed = evidence.tests.length === lifecycleCount && evidence.tests.every(result => result.passed);
   const directory = path.join(ROOT, '.test-artifacts');
   await fs.mkdir(directory, { recursive: true });
   await fs.writeFile(path.join(directory, 'desktop-host-verification.json'), `${JSON.stringify(evidence, null, 2)}\n`);

@@ -2,27 +2,37 @@
 
 // The native window owns this bridge. EOF also cleans up after a window crash.
 const { start, stop } = require('../launch.cjs');
+const { version } = require('../package.json');
+const path = require('node:path');
+const { runtimeDirectory } = require('../launch.cjs');
 let result;
 let closing = false;
 let finished = false;
 let startup;
 const originalLog = console.log;
 console.log = () => {};
-const send = value => process.stdout.write(`${JSON.stringify(value)}\n`);
+const send = (value, callback) => process.stdout.write(`${JSON.stringify(value)}\n`, callback);
 
 async function close() {
   if (closing) return;
   closing = true;
+  let cleanupFailed = false;
+  let stopped = false;
   try {
     await startup;
+    if (!result) throw new Error('The local player did not finish starting.');
     // An existing browser/server session belongs to its original launcher.
-    if (result?.pid) await stop({ port: result.port, expectedPid: result.pid });
+    if (result.pid) stopped = (await stop({ port: result.port, expectedPid: result.pid })).stopped;
   } catch (error) {
+    cleanupFailed = true;
     send({ type: 'cleanup-error', message: error.message });
   } finally {
+    // The native updater requires this positive acknowledgement as well as a
+    // clean exit. An exited/crashed bridge alone cannot prove its child stopped.
+    await new Promise(resolve => send({ type: 'closed', success: !cleanupFailed, ownsServer: Boolean(result?.pid), stopped }, resolve));
     finished = true;
     process.stdin.pause();
-    process.exit(0);
+    process.exit(cleanupFailed ? 1 : 0);
   }
 }
 
@@ -38,7 +48,7 @@ process.on('SIGTERM', close);
 process.stdin.resume();
 startup = start({ open: false, port: Number(process.env.CHANNEL_ROOM_PORT || 8767) }).then(value => {
   result = value;
-  if (!closing) send({ type: 'ready', url: value.url, ownsServer: Boolean(value.pid) });
+  if (!closing) send({ type: 'ready', url: value.url, ownsServer: Boolean(value.pid), version, directory: path.resolve(__dirname, '..'), runtimeDirectory: runtimeDirectory() });
 }).catch(error => {
   send({ type: 'error', message: error.message });
   if (!closing) { finished = true; process.exit(1); }

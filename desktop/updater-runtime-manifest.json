@@ -1,0 +1,14 @@
+{
+  "velopack": {
+    "version": "1.2.161",
+    "url": "https://api.nuget.org/v3-flatcontainer/velopack/1.2.161/velopack.1.2.161.nupkg",
+    "sha256": "d57275692b299751a12ee3e18283b5f7fe3e55339f96b1623345da095dc484ed",
+    "assembly": "lib/net472/Velopack.dll"
+  },
+  "newtonsoft": {
+    "version": "13.0.4",
+    "url": "https://api.nuget.org/v3-flatcontainer/newtonsoft.json/13.0.4/newtonsoft.json.13.0.4.nupkg",
+    "sha256": "f09081d457405baf35a973fa0c50d6bf272ed683f2568c5a620a49da952f6529",
+    "assembly": "lib/net45/Newtonsoft.Json.dll"
+  }
+}

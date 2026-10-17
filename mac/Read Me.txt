@@ -34,8 +34,9 @@ The app is self-contained. Move the .app as a whole; do not unpack or move
 individual files from inside the app bundle. Channel availability depends
 on the upstream providers and can change without notice.
 
-Updates: choose Check for updates in the app. The check reads the latest
-stable release from https://github.com/charlesmbeckwith/charliflix and opens
-its release page only when you choose it. Download the new Mac ZIP, close
-Charliflix, and replace the whole app. Your settings are kept separately.
-The app does not silently download or install updates.
+Updates: the app checks automatically after startup and every four hours
+while open. It notifies you when a newer stable GitHub release is available.
+You can also choose Check for updates to check sooner. Download the new
+Mac ZIP, close Charliflix, and replace the whole app. Settings are kept
+separately. Automatic installation is not enabled in this ad-hoc build;
+Developer ID signing and notarization are needed before enabling it.

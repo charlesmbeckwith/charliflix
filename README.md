@@ -6,10 +6,10 @@ A desktop TV player with its own playback controls, feed choices and window-fill
 
 Get a package from [GitHub Releases](https://github.com/charlesmbeckwith/charliflix/releases/latest).
 
-- **Windows x64:** unzip the complete folder and open `desktop/app/Charliflix.exe`. Node is included. Microsoft WebView2 Evergreen and .NET Framework 4.8 are required. Keep the folder in place; you can pin the running app to the taskbar.
+- **Windows x64:** use **Charliflix-Setup.exe** for automatic updates. Node is included; the installer checks the .NET Framework 4.8 and Microsoft WebView2 requirements. The portable ZIP remains available for manual installations.
 - **Apple Silicon Mac:** requires an M1 or newer Mac and macOS 13 or newer. Unzip and move `Charliflix.app` to Applications. The app includes its own runtime. This personal test build is ad-hoc signed and unnotarized; actual Mac launch and playback still need verification, and macOS may block it.
 
-The first Windows release is a portable ZIP, not an installer. Neither package installs a background service or adds an automatic startup entry.
+Neither app installs a background service or adds a login startup entry. The Windows installer creates the normal application shortcuts.
 
 ## Watching
 
@@ -23,12 +23,13 @@ The lineup includes Cartoon Network, Comedy Central, FX, FXX, AMC and generic AB
 
 ## Updates
 
-Use **Check for updates** in the app. It checks this public repository's latest stable release and offers a link to the release page. Updates are downloaded and installed manually; the app does not silently replace itself.
+**Windows installer:** the app checks automatically after startup and every four hours while open. It downloads an available update while you keep watching, then offers **Restart to update**. Installation happens only when you choose that action. Use **Check for updates** to check sooner. Settings and runtime data stay outside the versioned installation, under your local application data folder.
 
-- On Windows, close the app and extract the new package over the existing folder. Preserve `.runtime/desktop-profile` to keep preferences. Copy the old folder first if you want an easy restore path.
-- On Mac, close the app and replace the whole `Charliflix.app`; preferences are kept separately.
+If you have version 0.2.0 or an older portable copy, install the new Setup once to get this update system. The old portable folder is left intact. Portable ZIPs and browser sessions continue to use manual download links; they never replace the developer checkout automatically.
 
-Update checks send no account token or playback history. They run when requested, not on a background schedule. See [the changelog](CHANGELOG.md) for release changes.
+**Mac:** the app checks automatically and notifies you about new releases. Download the Mac ZIP, close the app and replace the whole `Charliflix.app`; preferences are kept separately. Automatic installation is not enabled in this ad-hoc build. It needs a Developer ID signed distribution, which requires an [Apple Developer Program membership](https://developer.apple.com/programs/whats-included/).
+
+Update checks use this public GitHub repository and send no account token or playback history. See [the changelog](CHANGELOG.md) for release changes.
 
 ## Run from source
 

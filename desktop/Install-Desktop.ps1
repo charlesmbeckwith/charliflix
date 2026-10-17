@@ -1,6 +1,12 @@
 param([switch]$StartMenu)
 $ErrorActionPreference = 'Stop'
 $appRoot = Split-Path $PSScriptRoot
+$installRoot = Split-Path $appRoot
+if ((Split-Path $appRoot -Leaf) -eq 'current' -and (Test-Path -LiteralPath (Join-Path $appRoot 'sq.version')) -and (Test-Path -LiteralPath (Join-Path $installRoot 'Update.exe'))) {
+    Write-Output 'Charliflix is managed by its installer. Use the existing Start menu shortcut, then pin the running app to the taskbar.'
+    Write-Output 'No shortcut was created inside the managed application folder.'
+    return
+}
 $exePath = Join-Path $PSScriptRoot 'app\Charliflix.exe'
 if (-not (Test-Path -LiteralPath $exePath)) { throw 'Build the desktop app with Build-Desktop.ps1 first.' }
 function New-ChannelRoomShortcut([string]$shortcutPath) {

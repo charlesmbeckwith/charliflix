@@ -4,7 +4,46 @@
   const video = $('video');
   const releasePrefix = 'https://github.com/charlesmbeckwith/charliflix/releases/tag/v';
   function isReleaseUrl(value) { return typeof value === 'string' && value.startsWith(releasePrefix) && /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/.test(value.slice(releasePrefix.length)); }
+  const updateBridge=window.charliflixUpdates||window.chrome?.webview;
+  let nativeUpdateMode=false;
+  let nativeUpdateReady=false;
+  function receiveUpdate(event) {
+    const data=event?.data;
+    if(!data||data.type!=='charliflix-updater'||typeof data.status!=='string'||data.status==='unsupported')return;
+    if(!['idle','checking','current','no-release','downloading','ready','restarting','available-manual','error'].includes(data.status))return;
+    nativeUpdateMode=true;nativeUpdateReady=data.status==='ready';
+    $('restart-update').hidden=!nativeUpdateReady;
+    $('restart-update').disabled=false;
+    $('open-release').hidden=true;
+    const busy=['checking','downloading','restarting'].includes(data.status);
+    $('check-updates').disabled=busy;
+    $('check-updates').textContent=busy?'Updating…':'Check for updates';
+    if(data.status==='idle')return;
+    if(data.automatic===true&&['checking','current','no-release','error'].includes(data.status))return;
+    $('update-result').hidden=false;
+    if(data.status==='checking')$('update-message').textContent='Checking for an update…';
+    else if(data.status==='downloading')$('update-message').textContent=`Downloading update${Number.isFinite(data.progress)?` · ${Math.round(Math.min(100,Math.max(0,data.progress)))}%`:''}. You can keep watching.`;
+    else if(data.status==='ready')$('update-message').textContent='An update is ready. Restart when you’re finished watching.';
+    else if(data.status==='restarting')$('update-message').textContent='Closing the player and applying the update…';
+    else if(data.status==='available-manual'&&isReleaseUrl(data.releaseUrl)){
+      $('update-message').textContent='A new Mac version is available. Download and replace the app; automatic installation needs Apple signing.';
+      $('open-release').href=data.releaseUrl;$('open-release').hidden=false;
+    } else if(data.status==='current')$('update-message').textContent='You have the latest release.';
+    else if(data.status==='no-release')$('update-message').textContent='There are no published releases yet. Check again later.';
+    else $('update-message').textContent='Couldn’t update right now. Try again later.';
+  }
+  if(updateBridge?.postMessage){
+    if(updateBridge.onMessage)updateBridge.onMessage(receiveUpdate);
+    else updateBridge.addEventListener?.('message',receiveUpdate);
+    updateBridge.postMessage({type:'charliflix-updater',action:'status'});
+  }
+  $('restart-update').addEventListener('click',()=>{
+    if(!nativeUpdateMode||!nativeUpdateReady)return;
+    $('restart-update').disabled=true;
+    updateBridge.postMessage({type:'charliflix-updater',action:'restart'});
+  });
   $('check-updates').addEventListener('click', async () => {
+    if(nativeUpdateMode){updateBridge.postMessage({type:'charliflix-updater',action:'check'});return;}
     const button = $('check-updates');
     button.disabled = true;
     button.textContent = 'Checking…';

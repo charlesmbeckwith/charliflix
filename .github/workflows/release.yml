@@ -38,6 +38,10 @@ jobs:
           $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
           if ($version -notmatch '^\d+\.\d+\.\d+$' -or $env:RELEASE_TAG -cne "v$version") { throw 'Tag must exactly match the stable package.json version.' }
       - run: npm ci
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
+        if: runner.os == 'Windows'
+        with:
+          dotnet-version: '8.0.x'
       - name: Test
         id: tests
         shell: pwsh
@@ -47,10 +51,28 @@ jobs:
           $summary = Select-String -LiteralPath test-results.txt -Pattern '^# pass (\d+)$' | Select-Object -Last 1
           if (-not $summary) { throw 'Could not read the passing test count.' }
           "count=$($summary.Matches[0].Groups[1].Value)" >> $env:GITHUB_OUTPUT
-      - name: Package Windows
+      - name: Package Windows portable, installer and updates
         if: runner.os == 'Windows'
         shell: pwsh
-        run: ./desktop/Package-Windows.ps1
+        run: ./desktop/Package-Installer.ps1
+      - name: Verify normal Windows installation on disposable runner
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $setup = Start-Process -FilePath (Join-Path $PWD 'dist/windows-updates/Charliflix-Setup.exe') -ArgumentList '--silent' -WindowStyle Hidden -Wait -PassThru
+          if ($setup.ExitCode -ne 0) { throw "Installer failed with exit code $($setup.ExitCode)." }
+          $installedRoot = [System.IO.Path]::GetFullPath((Join-Path $env:LOCALAPPDATA 'Charliflix/current'))
+          $installedApp = Join-Path $installedRoot 'desktop/app/Charliflix.exe'
+          $checkPath = Join-Path $env:RUNNER_TEMP 'charliflix-installed-check.json'
+          $check = Start-Process -FilePath $installedApp -ArgumentList @('--check', ('"{0}"' -f $checkPath)) -WindowStyle Hidden -Wait -PassThru
+          if ($check.ExitCode -ne 0) { throw "Installed preflight failed with exit code $($check.ExitCode)." }
+          $result = Get-Content -LiteralPath $checkPath -Raw | ConvertFrom-Json
+          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          if (-not $result.managedUpdates -or $result.applicationVersion -cne $version -or $result.root -ine $installedRoot) { throw 'Installed app did not recognize its managed installation and version.' }
+          $shortcut = Join-Path ([Environment]::GetFolderPath('Programs')) 'Charliflix.lnk'
+          if (-not (Test-Path -LiteralPath $shortcut)) { throw 'Installer did not create the Charliflix Start menu shortcut.' }
+          if (Test-Path -LiteralPath (Join-Path $installedRoot 'Start Charliflix.cmd')) { throw 'Portable command launcher leaked into the installed edition.' }
+          if (Get-ChildItem -LiteralPath $installedRoot -Filter '*.ps1' -Recurse -File) { throw 'PowerShell scripts leaked into the installed edition.' }
       - name: Package Apple Silicon
         if: runner.os == 'Linux'
         run: python3 mac/build_macos.py --fetch
@@ -71,6 +93,14 @@ jobs:
           Copy-Item -LiteralPath "dist/Charliflix-$env:PLATFORM.verification.json" -Destination "release/$name.verification.json"
           $hash = (Get-FileHash -LiteralPath "release/$name.zip" -Algorithm SHA256).Hash.ToLowerInvariant()
           [System.IO.File]::WriteAllText((Join-Path $PWD "release/$name.zip.sha256"), "$hash  $name.zip`n")
+          if ($env:PLATFORM -eq 'Windows-x64') {
+            $updateFiles = Get-ChildItem -LiteralPath dist/windows-updates -File | Where-Object { $_.Name -ne 'SHA256SUMS' }
+            $checksums = foreach ($file in $updateFiles) {
+              Copy-Item -LiteralPath $file.FullName -Destination (Join-Path $PWD "release/$($file.Name)")
+              (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant() + '  ' + $file.Name
+            }
+            [System.IO.File]::WriteAllLines((Join-Path $PWD 'release/windows-updates.sha256'), [string[]]$checksums)
+          }
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: ${{ matrix.platform }}
@@ -98,6 +128,10 @@ jobs:
           cd release
           test -f "Charliflix-$RELEASE_TAG-Windows-x64.zip"
           test -f "Charliflix-$RELEASE_TAG-Apple-Silicon.zip"
-          cat ./*.zip.sha256 > SHA256SUMS
+          test -f Charliflix-Setup.exe
+          test -f releases.win.json
+          test -f RELEASES
+          test -f "Charliflix-${RELEASE_TAG#v}-full.nupkg"
+          cat ./*.sha256 > SHA256SUMS
           sha256sum --check SHA256SUMS
-          gh release create "$RELEASE_TAG" ./*.zip ./*.verification.json SHA256SUMS --verify-tag --title "Charliflix $RELEASE_TAG" --notes "Download Windows-x64 for Windows 10/11, or Apple-Silicon for M1 and newer Macs running macOS 13+. Extract the complete archive before opening. Windows builds are unsigned; Mac builds are ad-hoc signed and are not Apple-notarized. See the included Read Me for requirements. Third-party feed availability is independent of app updates."
+          gh release create "$RELEASE_TAG" ./*.zip ./*.nupkg ./*.exe ./*.json RELEASES SHA256SUMS --verify-tag --title "Charliflix $RELEASE_TAG" --notes "For Windows 10/11, install Charliflix-Setup.exe once to enable background update downloads and restart-to-update. A manual Windows-x64 ZIP is also available. For M1 and newer Macs running macOS 13+, use the Apple-Silicon ZIP. Windows builds are unsigned; Mac builds are ad-hoc signed and are not Apple-notarized. See the included Read Me for requirements. Third-party feed availability is independent of app updates."

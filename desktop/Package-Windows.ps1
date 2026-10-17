@@ -30,7 +30,7 @@ try {
     Expand-Archive -LiteralPath $nodeArchive -DestinationPath $runtime
     $nodeRoot = Join-Path $runtime ('node-v' + $manifest.nodeVersion + '-win-x64')
     foreach ($name in @('node.exe', 'LICENSE')) { Add-PayloadFile (Join-Path $nodeRoot $name) ('desktop/runtime/' + $name) }
-    foreach ($name in @('Charliflix.exe', 'Charliflix.exe.config', 'Microsoft.Web.WebView2.Core.dll', 'Microsoft.Web.WebView2.WinForms.dll', 'WebView2Loader.dll', 'WebView2-LICENSE.txt', 'WebView2-NOTICE.txt')) {
+    foreach ($name in @('Charliflix.exe', 'Charliflix.exe.config', 'Microsoft.Web.WebView2.Core.dll', 'Microsoft.Web.WebView2.WinForms.dll', 'WebView2Loader.dll', 'WebView2-LICENSE.txt', 'WebView2-NOTICE.txt', 'Velopack.dll', 'Newtonsoft.Json.dll', 'Velopack-LICENSE.txt', 'Newtonsoft.Json-LICENSE.txt')) {
         Add-PayloadFile (Join-Path $compiled $name) ('desktop/app/' + $name)
     }
     foreach ($name in @('server.cjs', 'launch.cjs', 'package.json')) { Add-PayloadFile (Join-Path $appRoot $name) $name }
@@ -48,7 +48,7 @@ try {
 Charliflix $($package.version) - Windows x64
 
 Extract the entire Charliflix folder to a folder you can write to, then
-double-click Start Charliflix.cmd. Keep all files together.
+open desktop/app/Charliflix.exe. Keep all files together.
 Node.js is included. Windows 10/11 x64, .NET Framework 4.8 and Microsoft Edge
 WebView2 Runtime are required. .NET and WebView2 are normally already installed.
 If WebView2 is missing, install it from https://developer.microsoft.com/microsoft-edge/webview2/
@@ -57,9 +57,14 @@ For a taskbar shortcut, right-click the running Charliflix icon and choose
 Pin to taskbar. An optional Start Menu shortcut can be created by running
 desktop/Install-Desktop.ps1 -StartMenu in PowerShell.
 
-Use Check for updates in the app to open the latest official GitHub release.
-Updates are downloaded and installed by you; close the app before replacing
-its extracted files. Keep the .runtime folder if you want to preserve settings.
+This ZIP is the portable edition. For automatic Windows updates, install
+Charliflix-Setup.exe from the official GitHub release instead. The installed
+edition checks for updates, downloads them in the background and lets you
+choose when to restart and apply them.
+
+For this portable edition, use Check for updates to open the latest official
+GitHub release, close the app and replace its extracted files manually.
+Keep the .runtime folder when replacing files to preserve preferences.
 
 Internet access is required. Channel availability depends on third-party
 providers and may change. The app does not host or redistribute broadcasts.

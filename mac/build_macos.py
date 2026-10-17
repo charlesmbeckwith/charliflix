@@ -287,7 +287,7 @@ def build(root: Path, output: Path) -> None:
         for name in ("app.js", "styles.css", "index.html", "favicon.svg"):
             shutil.copy2(root / "public" / name, payload / "public" / name)
         (payload / "mac").mkdir()
-        for name in ("main.cjs", "runtime.cjs"):
+        for name in ("main.cjs", "runtime.cjs", "preload.cjs", "updates.cjs"):
             shutil.copy2(root / "mac" / name, payload / "mac" / name)
         dependencies = payload / "node_modules"
         png = dependencies / "pngjs"

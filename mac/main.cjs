@@ -1,11 +1,12 @@
 'use strict';
 
-const { app, BrowserWindow, dialog, Menu, session, shell } = require('electron');
+const { app, BrowserWindow, dialog, Menu, session, shell, ipcMain } = require('electron');
 const { createServer } = require('../server.cjs');
 const { startOwnedServer, isAppDocumentUrl, isAppResourceUrl, allowsPermission } = require('./runtime.cjs');
 const { isReleasePageUrl } = require('../lib/updates.cjs');
 const path = require('node:path');
 const fs = require('node:fs');
+const { createUpdateNotifications } = require('./updates.cjs');
 
 // Keep the original profile location when upgrading the renamed application.
 const legacyProfile = path.join(app.getPath('appData'), 'Channel Room');
@@ -20,6 +21,14 @@ if (!app.requestSingleInstanceLock()) {
   let startup;
   let quitRequested = false;
   let readyToQuit = false;
+  let updateNotifications;
+
+  ipcMain.on('charliflix-updater', (event, message) => {
+    if (mainWindow && !mainWindow.isDestroyed() && event.sender === mainWindow.webContents &&
+        event.senderFrame === mainWindow.webContents.mainFrame && isAppDocumentUrl(event.senderFrame.url, player?.origin)) {
+      updateNotifications?.request(message);
+    }
+  });
 
   function focusWindow() {
     if (!mainWindow || mainWindow.isDestroyed()) return;
@@ -55,6 +64,7 @@ if (!app.requestSingleInstanceLock()) {
       show: false,
       fullscreenable: true,
       webPreferences: {
+        preload: path.join(__dirname, 'preload.cjs'),
         sandbox: true,
         contextIsolation: true,
         nodeIntegration: false,
@@ -78,6 +88,7 @@ if (!app.requestSingleInstanceLock()) {
     win.webContents.on('will-redirect', guardDocumentNavigation);
     win.webContents.on('will-attach-webview', event => event.preventDefault());
     win.once('closed', () => { if (mainWindow === win) mainWindow = null; });
+    win.webContents.on('did-finish-load', () => updateNotifications?.request({ type: 'charliflix-updater', action: 'status' }));
     await win.loadURL(`${player.origin}/`);
     if (!quitRequested && !win.isDestroyed()) win.show();
     if (player.usedFallbackPort && !quitRequested && !win.isDestroyed()) {
@@ -103,6 +114,7 @@ if (!app.requestSingleInstanceLock()) {
     event.preventDefault();
     if (quitRequested) return;
     quitRequested = true;
+    updateNotifications?.close();
     Promise.resolve(startup).catch(() => {}).then(() => player?.close()).catch(error => {
       console.error('Could not finish closing the local player:', error.message);
     }).finally(() => {
@@ -120,8 +132,14 @@ if (!app.requestSingleInstanceLock()) {
     ]));
     player = await startOwnedServer({ createServer, root: app.getAppPath() });
     if (quitRequested) return;
+    updateNotifications = createUpdateNotifications({ send: data => {
+      if (mainWindow && !mainWindow.isDestroyed() && isAppDocumentUrl(mainWindow.webContents.getURL(), player.origin)) {
+        mainWindow.webContents.send('charliflix-update-status', data);
+      }
+    } });
     secureSession(session.defaultSession, player.origin);
     await createWindow();
+    updateNotifications.start();
   }).catch(error => {
     if (!quitRequested) dialog.showErrorBox('Charliflix could not start',
       `The local player could not open. Close Charliflix and try again.\n\n${error.message}`);

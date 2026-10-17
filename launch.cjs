@@ -5,11 +5,17 @@ const path = require('node:path');
 const http = require('node:http');
 const net = require('node:net');
 const { spawn } = require('node:child_process');
+const { version } = require('./package.json');
 
 const ROOT = __dirname;
-const RUNTIME = path.join(ROOT, '.runtime');
 const HOST = '127.0.0.1';
 const wait = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
+
+function runtimeDirectory(value = process.env.CHANNEL_ROOM_RUNTIME_DIR) {
+  if (value === undefined) return path.join(ROOT, '.runtime');
+  if (typeof value !== 'string' || !path.isAbsolute(value)) throw new Error('CHANNEL_ROOM_RUNTIME_DIR must be an absolute directory.');
+  return path.resolve(value);
+}
 
 function validatePort(value) {
   const port = Number(value);
@@ -22,11 +28,11 @@ function processExists(pid) {
   catch (error) { return error.code === 'EPERM'; }
 }
 
-function pathsFor(port) {
+function pathsFor(port, runtime) {
   return {
-    state: path.join(RUNTIME, `server-${port}.json`),
-    lock: path.join(RUNTIME, `launch-${port}.lock`),
-    log: path.join(RUNTIME, `server-${port}.log`),
+    state: path.join(runtime, `server-${port}.json`),
+    lock: path.join(runtime, `launch-${port}.lock`),
+    log: path.join(runtime, `server-${port}.log`),
   };
 }
 
@@ -53,6 +59,10 @@ function probeHealth(port) {
 function validIdentity(health, port, pid) {
   return health?.application === 'channel-room' && health.host === HOST && health.port === port &&
     Number.isInteger(health.pid) && health.pid > 0 && (pid === undefined || health.pid === pid);
+}
+
+function validInstallationIdentity(health, port, pid) {
+  return validIdentity(health, port, pid) && health.version === version && health.directory === ROOT;
 }
 
 function portOccupied(port) {
@@ -107,9 +117,10 @@ async function openBrowser(url) {
 async function start(options = {}) {
   if (Number(process.versions.node.split('.')[0]) < 22) throw new Error('Channel Room requires Node.js 22 or newer.');
   const port = validatePort(options.port ?? process.env.CHANNEL_ROOM_PORT ?? 8767);
-  const files = pathsFor(port);
+  const runtime = runtimeDirectory(options.runtimeDirectory);
+  const files = pathsFor(port, runtime);
   const url = `http://${HOST}:${port}`;
-  await fs.mkdir(RUNTIME, { recursive: true });
+  await fs.mkdir(runtime, { recursive: true });
   const unlock = await acquireLock(files.lock);
   let spawnedPid;
   let spawnedChild;
@@ -117,6 +128,7 @@ async function start(options = {}) {
     const existing = await probeHealth(port);
     if (existing) {
       if (!validIdentity(existing, port)) throw new Error(`Port ${port} belongs to another application. Choose another CHANNEL_ROOM_PORT.`);
+      if (!validInstallationIdentity(existing, port)) throw new Error('Another version or installation of Charliflix is running. Close that player, then open Charliflix again.');
       console.log(`Channel Room is already running at ${url}`);
     } else {
       if (await portOccupied(port)) throw new Error(`Port ${port} is already in use. Choose another CHANNEL_ROOM_PORT.`);
@@ -129,7 +141,7 @@ async function start(options = {}) {
       try {
         child = spawn(process.execPath, [path.join(ROOT, 'server.cjs')], {
           cwd: ROOT,
-          env: { ...process.env, CHANNEL_ROOM_HOST: HOST, CHANNEL_ROOM_PORT: String(port) },
+          env: { ...process.env, CHANNEL_ROOM_HOST: HOST, CHANNEL_ROOM_PORT: String(port), CHANNEL_ROOM_RUNTIME_DIR: runtime },
           detached: true, windowsHide: true, stdio: ['ignore', log.fd, log.fd],
         });
         spawnedChild = child;
@@ -141,13 +153,13 @@ async function start(options = {}) {
       let ready = false;
       while (Date.now() < deadline) {
         const health = await probeHealth(port);
-        if (validIdentity(health, port, spawnedPid)) { ready = true; break; }
+        if (validInstallationIdentity(health, port, spawnedPid)) { ready = true; break; }
         if (!processExists(spawnedPid)) break;
         await wait(200);
       }
       if (!ready) throw new Error(`The player did not start. Details are in ${files.log}`);
       const temporary = `${files.state}.${process.pid}.tmp`;
-      await fs.writeFile(temporary, `${JSON.stringify({ application: 'channel-room', pid: spawnedPid, host: HOST, port, directory: ROOT, started: new Date().toISOString() }, null, 2)}\n`, { flag: 'wx' });
+      await fs.writeFile(temporary, `${JSON.stringify({ application: 'channel-room', version, pid: spawnedPid, host: HOST, port, directory: ROOT, started: new Date().toISOString() }, null, 2)}\n`, { flag: 'wx' });
       await fs.rename(temporary, files.state);
       console.log(`Channel Room is ready at ${url}`);
     }
@@ -167,7 +179,7 @@ async function start(options = {}) {
 
 async function stop(options = {}) {
   const port = validatePort(options.port ?? process.env.CHANNEL_ROOM_PORT ?? 8767);
-  const files = pathsFor(port);
+  const files = pathsFor(port, runtimeDirectory(options.runtimeDirectory));
   const record = await readRecord(files.state);
   if (!record) { console.log('No player started by this launcher is recorded.'); return { stopped: false }; }
   if (record.application !== 'channel-room' || record.host !== HOST || record.port !== port ||
@@ -206,4 +218,4 @@ if (require.main === module) {
   Promise.resolve().then(run).catch(error => { console.error(error.message); process.exitCode = 1; });
 }
 
-module.exports = { start, stop, probeHealth, validIdentity, validatePort };
+module.exports = { start, stop, probeHealth, validIdentity, validInstallationIdentity, validatePort, runtimeDirectory };

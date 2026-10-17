@@ -5,6 +5,7 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 const { ChannelProvider, ProviderError } = require('./lib/provider.cjs');
 const { UpdateChecker, versionMetadata } = require('./lib/updates.cjs');
+const { version } = require('./package.json');
 
 const STATIC_FILES = new Map([
   ['/', ['public/index.html', 'text/html; charset=utf-8']],
@@ -19,7 +20,7 @@ const STATIC_FILES = new Map([
 function createServer(options = {}) {
   const provider = options.provider || new ChannelProvider();
   const updates = options.updates || new UpdateChecker();
-  const root = options.root || __dirname;
+  const root = path.resolve(options.root || __dirname);
   const allowedHost = options.host || process.env.CHANNEL_ROOM_HOST || '127.0.0.1';
   const server = http.createServer(async (request, response) => {
     const finish = (status, body, contentType = 'application/json; charset=utf-8') => {
@@ -50,7 +51,7 @@ function createServer(options = {}) {
       if (url.origin !== authority.origin) throw new ProviderError('Invalid request address.', 'INVALID_REQUEST', 400);
       if (url.search) throw new ProviderError('Unexpected request parameters.', 'INVALID_REQUEST', 400);
       if (url.pathname === '/api/health') {
-        return finish(200, JSON.stringify({ application: 'channel-room', pid: process.pid, host: allowedHost, port: server.address()?.port }));
+        return finish(200, JSON.stringify({ application: 'channel-room', version, directory: root, pid: process.pid, host: allowedHost, port: server.address()?.port }));
       }
       if (url.pathname === '/api/version') return finish(200, JSON.stringify(versionMetadata()));
       if (url.pathname === '/api/updates') {

@@ -8,7 +8,7 @@ const vm = require('node:vm');
 
 const source = fs.readFileSync(path.join(__dirname, '../public/app.js'), 'utf8');
 
-async function interfaceWith(updateResult) {
+async function interfaceWith(updateResult, nativeBridge) {
   const nodes = new Map();
   const requests = [];
   class Element {
@@ -39,7 +39,7 @@ async function interfaceWith(updateResult) {
   const body = get('body');
   const document = { body, getElementById: get, querySelector: get, querySelectorAll: () => [], createElement: () => new Element(), createTextNode: text => ({ textContent: text }), addEventListener() {} };
   vm.runInNewContext(source, {
-    document, Hls, window: { Hls, scrollY: 0, addEventListener() {}, scrollTo() {} },
+    document, Hls, window: { Hls, scrollY: 0, addEventListener() {}, scrollTo() {}, chrome: nativeBridge ? { webview: nativeBridge } : undefined },
     localStorage: { getItem() { return null; }, setItem() {} },
     setTimeout() { return 1; }, clearTimeout() {}, console,
     fetch: async url => {
@@ -79,6 +79,42 @@ test('updates are checked only on click and opening a validated release does not
   assert.equal(video.pauses, pauses);
   assert.equal(video.loads, loads);
   assert.equal(hls.destroyed, undefined);
+});
+
+test('managed desktop downloads update status and restarts only after explicit ready-button activation', async () => {
+  const sent=[];let listener;
+  const bridge={ postMessage: message=>sent.push(message), addEventListener: (_type,callback)=>{listener=callback;} };
+  const ui=await interfaceWith({},bridge);
+  assert.deepEqual(sent.map(message=>message.action),['status']);
+  listener({data:{type:'other',status:'ready'}});
+  await ui.click('restart-update');assert.equal(sent.length,1);
+  listener({data:{type:'charliflix-updater',status:'idle'}});
+  await ui.click('check-updates');assert.equal(sent.at(-1).action,'check');
+  assert.equal(ui.requests.includes('/api/updates'),false,'managed checks stay in the trusted native updater');
+  await ui.click('start-watching');const video=ui.get('video');await video.play();video.currentTime=12;
+  listener({data:{type:'charliflix-updater',status:'downloading',progress:999}});
+  assert.match(ui.get('update-message').textContent,/100%/);
+  assert.equal(ui.get('restart-update').hidden,true);
+  await ui.click('restart-update');assert.equal(sent.at(-1).action,'check');
+  listener({data:{type:'charliflix-updater',status:'ready'}});
+  assert.equal(ui.get('restart-update').hidden,false);
+  assert.equal(video.paused,false);assert.equal(video.currentTime,12);
+  assert.equal(sent.at(-1).action,'check','receiving ready never applies an update');
+  await ui.click('restart-update');assert.equal(sent.at(-1).action,'restart');
+  assert.equal(ui.get('restart-update').disabled,true);
+});
+
+test('background checks stay quiet and an unsigned Mac notification offers only a validated manual release', async()=>{
+  let listener;
+  const ui=await interfaceWith({}, {postMessage(){},addEventListener:(_type,callback)=>{listener=callback;}});
+  for(const status of ['checking','current','error'])listener({data:{type:'charliflix-updater',status,automatic:true}});
+  assert.equal(ui.get('update-result').hidden,true);
+  listener({data:{type:'charliflix-updater',status:'available-manual',releaseUrl:'https://attacker.example/app.zip'}});
+  assert.equal(ui.get('open-release').hidden,true);
+  listener({data:{type:'charliflix-updater',status:'available-manual',releaseUrl:'https://github.com/charlesmbeckwith/charliflix/releases/tag/v0.3.0'}});
+  assert.equal(ui.get('open-release').hidden,false);
+  assert.equal(ui.get('restart-update').hidden,true);
+  assert.match(ui.get('update-message').textContent,/Apple signing/);
 });
 
 test('update results remain recoverable and untrusted release URLs are never offered', async () => {

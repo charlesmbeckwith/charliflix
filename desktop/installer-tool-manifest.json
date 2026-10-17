@@ -1,0 +1,8 @@
+{
+  "version": "1.2.161",
+  "archive": "vpk.1.2.161.nupkg",
+  "url": "https://github.com/velopack/velopack/releases/download/1.2.161/vpk.1.2.161.nupkg",
+  "sha256": "2b56ce117f803fc70c103cb423bd040e395e40370f6ff6e10818e9ff9c26a323",
+  "checksumSource": "https://api.github.com/repos/velopack/velopack/releases/tags/1.2.161",
+  "entryPoint": "tools/net8.0/any/vpk.dll"
+}

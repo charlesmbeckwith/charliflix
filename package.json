@@ -1,6 +1,6 @@
 {
   "name": "charliflix",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "description": "A local channel player with a bounded public-stream resolver and media adapter.",
   "repository": { "type": "git", "url": "git+https://github.com/charlesmbeckwith/charliflix.git" },
