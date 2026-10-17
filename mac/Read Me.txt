@@ -1,0 +1,41 @@
+Charliflix - Apple Silicon personal test build
+
+Requires an Apple Silicon Mac (M1 or newer) with macOS 13 Ventura or newer.
+
+Unzip this archive on the Mac, then copy Charliflix.app to Applications.
+Open Charliflix.app. It includes its own browser runtime and feed server;
+you do not need to install Node.js or start a separate server.
+The local server closes when the app closes. Internet access is required.
+
+Theater: use the Theater button, T to toggle, or Escape to leave theater mode.
+The channel selection includes Cartoon Network, Comedy Central, FX, FXX,
+AMC and the generic USA network feeds. Broadcast commercials remain.
+
+Feed: choose a player from the Feed menu beside the playback controls.
+Your choice is remembered separately for each channel. If a feed fails,
+the app tries the other available feed once; you can also switch manually
+when a feed has no sound. Feed selection remains available in theater mode.
+The upstream providers can fail together, so an alternate is not guaranteed.
+
+This is an ad-hoc-signed personal test build. It is not signed with an Apple
+Developer ID and has not been notarized by Apple. macOS may block it.
+Apple signing/notarization and a first launch/playback check on a real Mac
+are required before treating it as a trusted, distribution-ready release.
+No instructions or scripts in this package disable Gatekeeper or remove
+download quarantine attributes.
+
+Validation performed on Windows/Linux: ARM64 Mach-O architecture, local
+runtime tests, ad-hoc signatures, file resource hashes, ZIP checksums,
+framework symlinks and executable permissions. Actual Mac launch,
+Apple codesign --verify --deep --strict, audio/video and fullscreen testing
+have not been performed.
+
+The app is self-contained. Move the .app as a whole; do not unpack or move
+individual files from inside the app bundle. Channel availability depends
+on the upstream providers and can change without notice.
+
+Updates: choose Check for updates in the app. The check reads the latest
+stable release from https://github.com/charlesmbeckwith/charliflix and opens
+its release page only when you choose it. Download the new Mac ZIP, close
+Charliflix, and replace the whole app. Your settings are kept separately.
+The app does not silently download or install updates.

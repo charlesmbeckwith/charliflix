@@ -1,0 +1,15 @@
+{
+  "name": "charliflix",
+  "version": "0.2.0",
+  "private": true,
+  "description": "A local channel player with a bounded public-stream resolver and media adapter.",
+  "repository": { "type": "git", "url": "git+https://github.com/charlesmbeckwith/charliflix.git" },
+  "homepage": "https://github.com/charlesmbeckwith/charliflix",
+  "bugs": { "url": "https://github.com/charlesmbeckwith/charliflix/issues" },
+  "scripts": {
+    "start": "node server.cjs",
+    "test": "node --test tests/*.test.cjs"
+  },
+  "engines": { "node": ">=22" },
+  "dependencies": { "hls.js": "1.7.3", "pngjs": "7.0.0" }
+}

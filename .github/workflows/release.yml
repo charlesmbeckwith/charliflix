@@ -1,0 +1,103 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-2022
+            platform: Windows-x64
+          - os: ubuntu-24.04
+            platform: Apple-Silicon
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Validate release tag
+        shell: pwsh
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          if ($version -notmatch '^\d+\.\d+\.\d+$' -or $env:RELEASE_TAG -cne "v$version") { throw 'Tag must exactly match the stable package.json version.' }
+      - run: npm ci
+      - name: Test
+        id: tests
+        shell: pwsh
+        run: |
+          node --test --test-reporter=tap tests/*.test.cjs | Tee-Object -FilePath test-results.txt
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $summary = Select-String -LiteralPath test-results.txt -Pattern '^# pass (\d+)$' | Select-Object -Last 1
+          if (-not $summary) { throw 'Could not read the passing test count.' }
+          "count=$($summary.Matches[0].Groups[1].Value)" >> $env:GITHUB_OUTPUT
+      - name: Package Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./desktop/Package-Windows.ps1
+      - name: Package Apple Silicon
+        if: runner.os == 'Linux'
+        run: python3 mac/build_macos.py --fetch
+      - name: Audit Apple Silicon archive
+        if: runner.os == 'Linux'
+        env:
+          PASSING_TESTS: ${{ steps.tests.outputs.count }}
+        run: python3 mac/audit_archive.py --application-tests "$PASSING_TESTS"
+      - name: Name versioned artifacts
+        shell: pwsh
+        env:
+          PLATFORM: ${{ matrix.platform }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          $name = "Charliflix-$env:RELEASE_TAG-$env:PLATFORM"
+          New-Item -ItemType Directory -Path release | Out-Null
+          Copy-Item -LiteralPath "dist/Charliflix-$env:PLATFORM.zip" -Destination "release/$name.zip"
+          Copy-Item -LiteralPath "dist/Charliflix-$env:PLATFORM.verification.json" -Destination "release/$name.verification.json"
+          $hash = (Get-FileHash -LiteralPath "release/$name.zip" -Algorithm SHA256).Hash.ToLowerInvariant()
+          [System.IO.File]::WriteAllText((Join-Path $PWD "release/$name.zip.sha256"), "$hash  $name.zip`n")
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ${{ matrix.platform }}
+          path: release/*
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          path: release
+          merge-multiple: true
+      - name: Verify and publish both platform builds
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          cd release
+          test -f "Charliflix-$RELEASE_TAG-Windows-x64.zip"
+          test -f "Charliflix-$RELEASE_TAG-Apple-Silicon.zip"
+          cat ./*.zip.sha256 > SHA256SUMS
+          sha256sum --check SHA256SUMS
+          gh release create "$RELEASE_TAG" ./*.zip ./*.verification.json SHA256SUMS --verify-tag --title "Charliflix $RELEASE_TAG" --notes "Download Windows-x64 for Windows 10/11, or Apple-Silicon for M1 and newer Macs running macOS 13+. Extract the complete archive before opening. Windows builds are unsigned; Mac builds are ad-hoc signed and are not Apple-notarized. See the included Read Me for requirements. Third-party feed availability is independent of app updates."
