@@ -73,6 +73,13 @@ jobs:
           if (-not (Test-Path -LiteralPath $shortcut)) { throw 'Installer did not create the Charliflix Start menu shortcut.' }
           if (Test-Path -LiteralPath (Join-Path $installedRoot 'Start Charliflix.cmd')) { throw 'Portable command launcher leaked into the installed edition.' }
           if (Get-ChildItem -LiteralPath $installedRoot -Filter '*.ps1' -Recurse -File) { throw 'PowerShell scripts leaked into the installed edition.' }
+          node tests/verify-installed.cjs --root "$installedRoot"
+          if ($LASTEXITCODE -ne 0) { throw 'Installed backend startup verification failed.' }
+          $evidencePath = Join-Path $PWD 'dist/windows-updates/Charliflix-Installer.verification.json'
+          $evidence = Get-Content -LiteralPath $evidencePath -Raw | ConvertFrom-Json
+          $evidence.installedOrLaunched = $true
+          $evidence | Add-Member -NotePropertyName disposableWindowsInstallTest -NotePropertyValue @{ passed=$true; managedPreflight=$true; startMenuShortcut=$true; playerHttpAssets=$true; occupiedPortFallback=$true; savedOriginAfterPreferredPortFreed=$true; ownedShutdown=$true; applicationWindowOpened=$false }
+          $evidence | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $evidencePath -Encoding UTF8
       - name: Package Apple Silicon
         if: runner.os == 'Linux'
         run: python3 mac/build_macos.py --fetch

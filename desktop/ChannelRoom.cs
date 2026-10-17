@@ -96,13 +96,14 @@ namespace ChannelRoomDesktop
 
     internal sealed class PlayerWindow : Form
     {
+        private static readonly object LogLock = new object();
         private readonly Label notice;
         private WebView2 web;
         private Process host;
         private bool hostOwnsServer;
         private bool hostCleanupFailed;
         private bool hostCleanupConfirmed;
-        private readonly TaskCompletionSource<string> ready = new TaskCompletionSource<string>();
+        private readonly DesktopHostStartup startup;
         private bool closing;
         private bool closeComplete;
         private bool fullscreen;
@@ -116,6 +117,7 @@ namespace ChannelRoomDesktop
         {
             updater = new DesktopUpdateController(new VelopackUpdateBackend(Program.Version));
             if (updater.IsManaged) Program.RuntimeDirectory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Charliflix", "user-data");
+            startup = new DesktopHostStartup(Path.Combine(Program.RuntimeDirectory, "desktop.log"));
             updater.StateChanged += PublishUpdateState;
             updateTimer = new System.Windows.Forms.Timer { Interval = 10000 };
             updateTimer.Tick += async delegate {
@@ -148,14 +150,23 @@ namespace ChannelRoomDesktop
                 info.EnvironmentVariables["CHANNEL_ROOM_RUNTIME_DIR"] = Program.RuntimeDirectory;
                 host = new Process { StartInfo = info, EnableRaisingEvents = true };
                 host.OutputDataReceived += OnHostMessage;
-                host.ErrorDataReceived += delegate(object sender, DataReceivedEventArgs e) { if (!String.IsNullOrEmpty(e.Data)) Log(e.Data); };
-                host.Exited += delegate { ready.TrySetException(new InvalidOperationException("The local player could not start. Try opening Charliflix again.")); };
+                host.ErrorDataReceived += delegate(object sender, DataReceivedEventArgs e) {
+                    if (e.Data == null) startup.ErrorClosed();
+                    else if (!String.IsNullOrEmpty(e.Data)) { startup.ErrorLine(e.Data); Log(e.Data); }
+                };
+                var launchedHost = host;
+                host.Exited += async delegate {
+                    int? exitCode = null;
+                    try { exitCode = launchedHost.ExitCode; } catch (InvalidOperationException) { }
+                    Log("The local player bridge exited" + (exitCode.HasValue ? " with code " + exitCode.Value : "") + ".");
+                    await startup.ExitedAsync(exitCode);
+                };
                 host.Start();
                 host.BeginOutputReadLine();
                 host.BeginErrorReadLine();
-                var completed = await Task.WhenAny(ready.Task, Task.Delay(20000));
-                if (completed != ready.Task) throw new TimeoutException("The local player took too long to start. Close this window and try again.");
-                origin = await ready.Task;
+                var completed = await Task.WhenAny(startup.Ready, Task.Delay(20000));
+                if (completed != startup.Ready) throw new TimeoutException("The local player took too long to start. Close this window and try again.");
+                origin = await startup.Ready;
                 if (closing) return;
                 web = new WebView2 { Dock = DockStyle.Fill, DefaultBackgroundColor = BackColor, Visible = false };
                 Controls.Add(web);
@@ -193,7 +204,10 @@ namespace ChannelRoomDesktop
                 core.Navigate(origin + "/");
                 if (updater.IsManaged) updateTimer.Start();
             }
-            catch (Exception error) { if (!closing) ShowFailure(error is WebView2RuntimeNotFoundException ? "Microsoft Edge WebView2 Runtime is required. Install the Evergreen Runtime from Microsoft, then open Charliflix again." : error.Message); }
+            catch (Exception error) {
+                Log("Player startup failed: " + error);
+                if (!closing) ShowFailure(error is WebView2RuntimeNotFoundException ? "Microsoft Edge WebView2 Runtime is required. Install the Evergreen Runtime from Microsoft, then open Charliflix again." : error.Message);
+            }
         }
 
         private bool IsLocalPage(string address)
@@ -261,6 +275,7 @@ namespace ChannelRoomDesktop
 
         private void OnHostMessage(object sender, DataReceivedEventArgs e)
         {
+            if (e.Data == null) { startup.OutputClosed(); return; }
             if (String.IsNullOrEmpty(e.Data)) return;
             try
             {
@@ -268,18 +283,18 @@ namespace ChannelRoomDesktop
                 string type = Convert.ToString(data["type"]);
                 if (type == "ready")
                 {
-                    string url = Convert.ToString(data["url"]);
-                    if (url != "http://127.0.0.1:8767") throw new InvalidOperationException("The local player returned an unexpected address.");
+                    string url;
+                    if (!DesktopHostStartup.TryLoopbackOrigin(Convert.ToString(data["url"]), out url)) throw new InvalidOperationException("The local player returned an unexpected address.");
                     if (Convert.ToString(data["version"]) != Program.Version || !String.Equals(Path.GetFullPath(Convert.ToString(data["directory"])).TrimEnd(Path.DirectorySeparatorChar), Program.Root.TrimEnd(Path.DirectorySeparatorChar), StringComparison.OrdinalIgnoreCase) || !String.Equals(Path.GetFullPath(Convert.ToString(data["runtimeDirectory"])).TrimEnd(Path.DirectorySeparatorChar), Program.RuntimeDirectory.TrimEnd(Path.DirectorySeparatorChar), StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException("A different version or installation is already using the local player connection. Close the other player and open Charliflix again.");
                     hostOwnsServer = data.ContainsKey("ownsServer") && data["ownsServer"] is bool && (bool)data["ownsServer"];
-                    ready.TrySetResult(url);
+                    startup.TryReady(url);
                 }
-                else if (type == "error") ready.TrySetException(new InvalidOperationException(Convert.ToString(data["message"])));
+                else if (type == "error") startup.Fail(new InvalidOperationException(Convert.ToString(data["message"])));
                 else if (type == "cleanup-error") { hostCleanupFailed = true; Log(e.Data); }
                 else if (type == "closed") { hostCleanupConfirmed = data.ContainsKey("success") && data["success"] is bool && (bool)data["success"] && data.ContainsKey("stopped") && data["stopped"] is bool && (bool)data["stopped"] && data.ContainsKey("ownsServer") && data["ownsServer"] is bool && (bool)data["ownsServer"]; }
                 else Log(e.Data);
             }
-            catch (Exception error) { ready.TrySetException(new InvalidOperationException("The local player could not be initialized.", error)); }
+            catch (Exception error) { Log("The local player bridge message was invalid: " + error); startup.Fail(new InvalidOperationException("The local player could not be initialized.", error)); }
         }
 
         private void ShowFailure(string message)
@@ -354,7 +369,10 @@ namespace ChannelRoomDesktop
 
         private static void Log(string message)
         {
-            try { string folder = Program.RuntimeDirectory; Directory.CreateDirectory(folder); File.AppendAllText(Path.Combine(folder, "desktop.log"), DateTime.UtcNow.ToString("u") + " " + message + Environment.NewLine); } catch (IOException) { } catch (UnauthorizedAccessException) { }
+            lock (LogLock)
+            {
+                try { string folder = Program.RuntimeDirectory; Directory.CreateDirectory(folder); File.AppendAllText(Path.Combine(folder, "desktop.log"), DateTime.UtcNow.ToString("u") + " " + message + Environment.NewLine); } catch (IOException) { } catch (UnauthorizedAccessException) { }
+            }
         }
     }
 }

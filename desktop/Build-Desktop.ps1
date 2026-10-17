@@ -53,7 +53,7 @@ $compilerArgs = @('/nologo', '/target:winexe', '/platform:x64', '/optimize+', '/
     '/reference:System.Windows.Forms.dll', '/reference:System.Drawing.dll', '/reference:System.Web.Extensions.dll', '/reference:System.Net.Http.dll', '/reference:System.IO.Compression.dll', '/reference:System.IO.Compression.FileSystem.dll', "/reference:$(Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\WPF\WindowsBase.dll')",
     "/reference:$(Join-Path $appFolder 'Microsoft.Web.WebView2.Core.dll')", "/reference:$(Join-Path $appFolder 'Microsoft.Web.WebView2.WinForms.dll')",
     "/reference:$(Join-Path $appFolder 'Velopack.dll')", "/reference:$(Join-Path $appFolder 'Newtonsoft.Json.dll')",
-    (Join-Path $desktopRoot 'ChannelRoom.cs'), (Join-Path $desktopRoot 'DesktopUpdater.cs'), (Join-Path $desktopRoot 'VelopackUpdater.cs'), (Join-Path $desktopRoot 'Shortcut.cs'), $versionSource)
+    (Join-Path $desktopRoot 'ChannelRoom.cs'), (Join-Path $desktopRoot 'DesktopStartup.cs'), (Join-Path $desktopRoot 'DesktopUpdater.cs'), (Join-Path $desktopRoot 'VelopackUpdater.cs'), (Join-Path $desktopRoot 'Shortcut.cs'), $versionSource)
 & $compilerPath @compilerArgs
 if ($LASTEXITCODE -ne 0) { throw "Desktop compilation failed with exit code $LASTEXITCODE." }
 @'

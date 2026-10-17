@@ -1,7 +1,8 @@
 'use strict';
 
 // The native window owns this bridge. EOF also cleans up after a window crash.
-const { start, stop } = require('../launch.cjs');
+const { stop } = require('../launch.cjs');
+const { startDesktop } = require('./runtime.cjs');
 const { version } = require('../package.json');
 const path = require('node:path');
 const { runtimeDirectory } = require('../launch.cjs');
@@ -21,8 +22,8 @@ async function close() {
   try {
     await startup;
     if (!result) throw new Error('The local player did not finish starting.');
-    // An existing browser/server session belongs to its original launcher.
-    if (result.pid) stopped = (await stop({ port: result.port, expectedPid: result.pid })).stopped;
+    // Stop only the backend created by this bridge, never another listener.
+    if (result.pid) stopped = (await stop({ port: result.port, expectedPid: result.pid, runtimeDirectory: result.runtimeDirectory })).stopped;
   } catch (error) {
     cleanupFailed = true;
     send({ type: 'cleanup-error', message: error.message });
@@ -46,11 +47,13 @@ process.stdin.on('end', close);
 process.on('SIGINT', close);
 process.on('SIGTERM', close);
 process.stdin.resume();
-startup = start({ open: false, port: Number(process.env.CHANNEL_ROOM_PORT || 8767) }).then(value => {
+startup = startDesktop({ port: Number(process.env.CHANNEL_ROOM_PORT || 8767) }).then(value => {
   result = value;
   if (!closing) send({ type: 'ready', url: value.url, ownsServer: Boolean(value.pid), version, directory: path.resolve(__dirname, '..'), runtimeDirectory: runtimeDirectory() });
-}).catch(error => {
-  send({ type: 'error', message: error.message });
-  if (!closing) { finished = true; process.exit(1); }
+}).catch(async error => {
+  // Native startup waits for the drained output stream. Flush the specific
+  // failure before exit so it is not replaced by a generic process-exit error.
+  await new Promise(resolve => send({ type: 'error', message: error.message }, resolve));
+  if (!closing) { finished = true; process.stdin.pause(); process.exit(1); }
 });
 process.on('exit', () => { if (!finished) console.log = originalLog; });

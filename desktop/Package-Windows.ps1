@@ -36,7 +36,7 @@ try {
     foreach ($name in @('server.cjs', 'launch.cjs', 'package.json')) { Add-PayloadFile (Join-Path $appRoot $name) $name }
     if (Test-Path -LiteralPath (Join-Path $appRoot 'LICENSE')) { Add-PayloadFile (Join-Path $appRoot 'LICENSE') 'LICENSE' }
     Add-PayloadFile (Join-Path $appRoot 'config\channels.json') 'config/channels.json'
-    foreach ($name in @('host.cjs', 'Install-Desktop.ps1')) { Add-PayloadFile (Join-Path $PSScriptRoot $name) ('desktop/' + $name) }
+    foreach ($name in @('host.cjs', 'runtime.cjs', 'Install-Desktop.ps1')) { Add-PayloadFile (Join-Path $PSScriptRoot $name) ('desktop/' + $name) }
     Add-PayloadFile (Join-Path $PSScriptRoot 'assets\channel-room.ico') 'desktop/assets/channel-room.ico'
     foreach ($file in Get-ChildItem -LiteralPath (Join-Path $appRoot 'lib') -Filter '*.cjs' -File) { Add-PayloadFile $file.FullName ('lib/' + $file.Name) }
     foreach ($name in @('app.js', 'styles.css', 'index.html', 'favicon.svg')) { Add-PayloadFile (Join-Path $appRoot ('public/' + $name)) ('public/' + $name) }

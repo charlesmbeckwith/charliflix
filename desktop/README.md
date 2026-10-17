@@ -12,7 +12,7 @@ Settings, the WebView2 profile, logs and server state are stored under `%LOCALAP
 
 If you have version 0.2.0 or an older extracted copy, close it and run the new Setup once to get automatic updates. The old portable folder is left intact. Its preferences remain in that folder; they are not automatically imported into the new installed profile. Use the new Start menu shortcut afterward.
 
-The app closes its owned loopback backend before applying an update. If it reused a separately started browser player, it asks you to close that player and stop its server, then reopen Charliflix before installing. It does not stop another launcher's server to force an update.
+The desktop app starts its own loopback backend. If another player already occupies the normal port, it selects a separate available port and remembers that choice for later launches. Closing the app or applying an update stops its owned backend. Separately started browser players remain under their original launcher.
 
 ## Optional portable copy
 

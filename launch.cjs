@@ -76,6 +76,13 @@ function portOccupied(port) {
   });
 }
 
+function playerPortBusy(port) {
+  const error = new Error(`The local player connection on port ${port} is already in use.`);
+  error.code = 'EPLAYER_PORT_BUSY';
+  error.port = port;
+  return error;
+}
+
 async function readRecord(file) {
   try {
     const info = await fs.stat(file);
@@ -98,7 +105,9 @@ async function acquireLock(file) {
       if (error.code !== 'EEXIST') throw error;
       const existing = await readRecord(file);
       if (!existing || !Number.isInteger(existing.pid) || existing.pid < 1 || processExists(existing.pid)) {
-        throw new Error('Another Channel Room launch is in progress. Try again in a moment.');
+        const busy = new Error('Another Channel Room launch is in progress. Try again in a moment.');
+        busy.code = 'EPLAYER_LAUNCH_BUSY';
+        throw busy;
       }
       await fs.unlink(file).catch(error => { if (error.code !== 'ENOENT') throw error; });
     }
@@ -121,17 +130,23 @@ async function start(options = {}) {
   const files = pathsFor(port, runtime);
   const url = `http://${HOST}:${port}`;
   await fs.mkdir(runtime, { recursive: true });
-  const unlock = await acquireLock(files.lock);
+  let unlock;
+  try { unlock = await acquireLock(files.lock); }
+  catch (error) {
+    if (options.requireOwned === true && error.code === 'EPLAYER_LAUNCH_BUSY') throw playerPortBusy(port);
+    throw error;
+  }
   let spawnedPid;
   let spawnedChild;
   try {
     const existing = await probeHealth(port);
+    if (options.requireOwned === true && (existing || await portOccupied(port))) throw playerPortBusy(port);
     if (existing) {
       if (!validIdentity(existing, port)) throw new Error(`Port ${port} belongs to another application. Choose another CHANNEL_ROOM_PORT.`);
       if (!validInstallationIdentity(existing, port)) throw new Error('Another version or installation of Charliflix is running. Close that player, then open Charliflix again.');
       console.log(`Channel Room is already running at ${url}`);
     } else {
-      if (await portOccupied(port)) throw new Error(`Port ${port} is already in use. Choose another CHANNEL_ROOM_PORT.`);
+      if (options.requireOwned !== true && await portOccupied(port)) throw new Error(`Port ${port} is already in use. Choose another CHANNEL_ROOM_PORT.`);
       try {
         require.resolve('hls.js/dist/hls.min.js');
         require.resolve('pngjs');
@@ -156,6 +171,13 @@ async function start(options = {}) {
         if (validInstallationIdentity(health, port, spawnedPid)) { ready = true; break; }
         if (!processExists(spawnedPid)) break;
         await wait(200);
+      }
+      if (!ready && options.requireOwned === true) {
+        // A listener can win the bind race after the initial availability check.
+        // Retry only that collision, without reusing or stopping the winner.
+        const health = await probeHealth(port);
+        if (validInstallationIdentity(health, port, spawnedPid)) ready = true;
+        else if (await portOccupied(port)) throw playerPortBusy(port);
       }
       if (!ready) throw new Error(`The player did not start. Details are in ${files.log}`);
       const temporary = `${files.state}.${process.pid}.tmp`;

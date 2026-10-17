@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.1
+
+- Fixed Windows startup when an older player or another application occupies the local player port.
+- Remembered the desktop player's selected local port to keep its settings available across restarts.
+- Preserved specific startup errors instead of replacing them with a generic failure message.
+- Added an installed-package check that starts the backend, loads the player assets and verifies cleanup while another player remains open.
+
 ## 0.3.0
 
 - Added a Windows installer with automatic update checks and background downloads from GitHub Releases.
