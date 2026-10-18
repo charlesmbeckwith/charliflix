@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.3
+
+- Fixed Windows update connections by declaring the executable's .NET Framework 4.8 target, allowing the operating system's modern TLS defaults.
+- Added native-process and installed-package checks for the target framework and update transport defaults.
+- Windows versions 0.3.0 through 0.3.2 need this installer once because their update connection cannot download the repair. This version also includes the 0.3.2 playback repairs.
+
 ## 0.3.2
 
 - Restored Player 1 after its provider introduced short-lived playlist tokens, including renewal during playback and one retry for an expired token.

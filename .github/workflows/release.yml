@@ -69,6 +69,7 @@ jobs:
           $result = Get-Content -LiteralPath $checkPath -Raw | ConvertFrom-Json
           $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
           if (-not $result.managedUpdates -or $result.applicationVersion -cne $version -or $result.root -ine $installedRoot) { throw 'Installed app did not recognize its managed installation and version.' }
+          if ($result.targetFramework -cne '.NETFramework,Version=v4.8' -or $result.securityProtocol -cne 'SystemDefault') { throw 'Installed app is not using the intended .NET framework and operating-system TLS defaults.' }
           $shortcut = Join-Path ([Environment]::GetFolderPath('Programs')) 'Charliflix.lnk'
           if (-not (Test-Path -LiteralPath $shortcut)) { throw 'Installer did not create the Charliflix Start menu shortcut.' }
           if (Test-Path -LiteralPath (Join-Path $installedRoot 'Start Charliflix.cmd')) { throw 'Portable command launcher leaked into the installed edition.' }
@@ -78,7 +79,7 @@ jobs:
           $evidencePath = Join-Path $PWD 'dist/windows-updates/Charliflix-Installer.verification.json'
           $evidence = Get-Content -LiteralPath $evidencePath -Raw | ConvertFrom-Json
           $evidence.installedOrLaunched = $true
-          $evidence | Add-Member -NotePropertyName disposableWindowsInstallTest -NotePropertyValue @{ passed=$true; managedPreflight=$true; startMenuShortcut=$true; playerHttpAssets=$true; occupiedPortFallback=$true; savedOriginAfterPreferredPortFreed=$true; ownedShutdown=$true; applicationWindowOpened=$false }
+          $evidence | Add-Member -NotePropertyName disposableWindowsInstallTest -NotePropertyValue @{ passed=$true; managedPreflight=$true; targetFramework=$result.targetFramework; securityProtocol=$result.securityProtocol; startMenuShortcut=$true; playerHttpAssets=$true; occupiedPortFallback=$true; savedOriginAfterPreferredPortFreed=$true; ownedShutdown=$true; applicationWindowOpened=$false }
           $evidence | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $evidencePath -Encoding UTF8
       - name: Package Apple Silicon
         if: runner.os == 'Linux'

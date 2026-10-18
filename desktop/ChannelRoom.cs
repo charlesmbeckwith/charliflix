@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
 using System.IO;
+using System.Net;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Threading;
@@ -50,7 +51,8 @@ namespace ChannelRoomDesktop
                     string version = CoreWebView2Environment.GetAvailableBrowserVersionString();
                     string node = FindNode();
                     var updateBackend = new VelopackUpdateBackend(Version);
-                    File.WriteAllText(args[1], new JavaScriptSerializer().Serialize(new { application = "channel-room-desktop", runtime = version, node = node, root = Root, appId = AppId, applicationVersion = Version, managedUpdates = updateBackend.IsInstalled }));
+                    File.WriteAllText(args[1], new JavaScriptSerializer().Serialize(new { application = "channel-room-desktop", runtime = version, node = node, root = Root, appId = AppId, applicationVersion = Version, managedUpdates = updateBackend.IsInstalled,
+                        targetFramework = AppDomain.CurrentDomain.SetupInformation.TargetFrameworkName, securityProtocol = ServicePointManager.SecurityProtocol.ToString() }));
                     return 0;
                 }
                 bool first;

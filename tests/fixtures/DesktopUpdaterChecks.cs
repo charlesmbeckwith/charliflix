@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Net;
+using System.Runtime.Versioning;
 using System.Threading;
 using System.Threading.Tasks;
 using ChannelRoomDesktop;
@@ -35,6 +37,14 @@ internal static class DesktopUpdaterChecks
     private static void Assert(bool value, string message) { if (!value) throw new Exception(message); }
     private static async Task Run(string name)
     {
+        if (name == "framework-tls")
+        {
+            var attributes = typeof(DesktopUpdaterChecks).Assembly.GetCustomAttributes(typeof(TargetFrameworkAttribute), false);
+            Assert(attributes.Length == 1 && ((TargetFrameworkAttribute)attributes[0]).FrameworkName == ".NETFramework,Version=v4.8", "The native assembly must declare its supported framework target.");
+            Assert(AppDomain.CurrentDomain.SetupInformation.TargetFrameworkName == ".NETFramework,Version=v4.8", "The process did not recognize the native framework target.");
+            Assert(ServicePointManager.SecurityProtocol == SecurityProtocolType.SystemDefault, "Updater requests must use OS-managed TLS instead of legacy SSL/TLS defaults.");
+            return;
+        }
         if (name == "source-guard")
         {
             const string origin = "http://127.0.0.1:8767";

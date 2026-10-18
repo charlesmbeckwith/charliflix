@@ -25,6 +25,8 @@ The lineup includes Cartoon Network, Comedy Central, FX, FXX, AMC and generic AB
 
 **Windows installer:** the app checks automatically after startup and every four hours while open. It downloads an available update while you keep watching, then offers **Restart to update**. Installation happens only when you choose that action. Use **Check for updates** to check sooner. Settings and runtime data stay outside the versioned installation, under your local application data folder.
 
+**One-time repair for Windows 0.3.0–0.3.2:** install **0.3.3 or newer** from a fresh download of Charliflix-Setup.exe. Those versions had an update connection bug and cannot download this repair through the app. Close Charliflix before running the fresh installer; reopening an older Setup saved in Downloads installs that older version.
+
 If you have version 0.2.0 or an older portable copy, install the new Setup once to get this update system. The old portable folder is left intact. Portable ZIPs and browser sessions continue to use manual download links; they never replace the developer checkout automatically.
 
 **Mac:** the app checks automatically and notifies you about new releases. Download the Mac ZIP, close the app and replace the whole `Charliflix.app`; preferences are kept separately. Automatic installation is not enabled in this ad-hoc build. It needs a Developer ID signed distribution, which requires an [Apple Developer Program membership](https://developer.apple.com/programs/whats-included/).
