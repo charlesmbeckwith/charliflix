@@ -20,8 +20,10 @@
     <main class="workspace">
       <aside class="sidebar" aria-label="Channel selection">
         <div class="sidebar-intro"><p class="eyebrow">THE LINEUP</p><h1>A little good TV.</h1><p>Pick a channel. Settle in.</p></div>
-        <section aria-labelledby="favorites-title"><h2 id="favorites-title">Favorites <span id="favorite-count">05</span></h2><div id="favorite-channels" class="channel-list"></div></section>
-        <section aria-labelledby="networks-title"><h2 id="networks-title">Networks <span id="network-count">05</span></h2><div id="network-channels" class="channel-list"></div></section>
+        <div class="channel-scroll" role="region" aria-label="Channels" tabindex="0">
+          <section aria-labelledby="favorites-title"><h2 id="favorites-title">Favorites <span id="favorite-count">05</span></h2><div id="favorite-channels" class="channel-list"></div></section>
+          <section aria-labelledby="networks-title"><h2 id="networks-title">Networks <span id="network-count">05</span></h2><div id="network-channels" class="channel-list"></div></section>
+        </div>
         <p class="sidebar-foot" id="lineup-summary">USA feeds · Local playback</p>
       </aside>
       <section class="stage" aria-labelledby="now-title">

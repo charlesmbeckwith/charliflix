@@ -17,6 +17,8 @@ Choose a channel, then use **Feed** to select Player 1 or Player 2. The app reme
 
 **Theater** fills the app window. Press **T** to toggle it or **Escape** to leave. Fullscreen fills the monitor. Volume, mute and theater settings survive feed changes.
 
+The player fits the available window space while keeping the video's proportions. The lineup scrolls independently, so browsing channels keeps the video and controls in place. In narrow windows the lineup moves below the player and keeps its own scroll area.
+
 The lineup includes Cartoon Network, Comedy Central, FX, FXX, AMC and generic ABC, CBS, NBC, FOX and CW feeds. Network feeds are not guaranteed to be your local affiliates. PBS is currently disabled.
 
 **Availability:** third-party feeds can lose sound, stall or disappear, and multiple player choices can fail together. Player 1 corresponds to the original site's Players 1, 3 and 7, which share a source; Player 2 uses an independent provider. Version 0.3.2 updates both adapters for provider changes observed on October 17, 2026. An update check can install an adapter repair, but availability still depends on the provider.

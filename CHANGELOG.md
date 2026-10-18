@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.4
+
+- Kept the player inside the app window instead of extending the page to fit the channel list.
+- Added independent channel scrolling with keyboard access.
+- Made the video area, spacing and controls adapt to the available window size while preserving video proportions.
+- Added a bounded layout for narrow and short windows, with reachable controls and window-filling theater mode.
+
 ## 0.3.3
 
 - Fixed Windows update connections by declaring the executable's .NET Framework 4.8 target, allowing the operating system's modern TLS defaults.
