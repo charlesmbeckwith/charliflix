@@ -19,7 +19,7 @@ Choose a channel, then use **Feed** to select Player 1 or Player 2. The app reme
 
 The lineup includes Cartoon Network, Comedy Central, FX, FXX, AMC and generic ABC, CBS, NBC, FOX and CW feeds. Network feeds are not guaranteed to be your local affiliates. PBS is currently disabled.
 
-**Availability:** third-party feeds can lose sound, stall or disappear, and multiple player choices can fail together. Player 1 corresponds to the original site's Players 1, 3 and 7, which share a source; Player 2 uses an independent provider. No working replacement was found for several channels during October 16, 2026 checks. An update check does not repair an upstream outage.
+**Availability:** third-party feeds can lose sound, stall or disappear, and multiple player choices can fail together. Player 1 corresponds to the original site's Players 1, 3 and 7, which share a source; Player 2 uses an independent provider. Version 0.3.2 updates both adapters for provider changes observed on October 17, 2026. An update check can install an adapter repair, but availability still depends on the provider.
 
 ## Updates
 

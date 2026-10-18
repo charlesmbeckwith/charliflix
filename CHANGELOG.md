@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.2
+
+- Restored Player 1 after its provider introduced short-lived playlist tokens, including renewal during playback and one retry for an expired token.
+- Restored Player 2 after its provider moved to a new embed domain.
+- Kept playback tokens in memory and restricted their requests to the resolved provider edge.
+- Added regression coverage for renewal, concurrent requests, response bounds and provider redirects.
+
 ## 0.3.1
 
 - Fixed Windows startup when an older player or another application occupies the local player port.

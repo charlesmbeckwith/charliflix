@@ -55,10 +55,10 @@ test('feed metadata exposes only fixed identifiers and describes the independent
 });
 
 test('alternate wrapper extraction accepts exactly the observed fixed embed provider', () => {
-  const embed = 'https://missflight.net/e/d2695mac448xt';
+  const embed = 'https://tossequip.net/e/d2695mac448xt';
   assert.equal(parseCastEmbedUrl(`<iframe src="${embed}" allowfullscreen></iframe>`), embed);
   assert.throws(() => parseCastEmbedUrl(`<iframe data-src="${embed}"></iframe>`), /could not be found/);
-  for (const value of ['https://attacker.example/e/d2695mac448xt', 'https://missflight.net.attacker.example/e/d2695mac448xt', 'http://missflight.net/e/d2695mac448xt', 'https://missflight.net/e/d2695mac448xt?url=https://attacker.example']) {
+  for (const value of ['https://attacker.example/e/d2695mac448xt', 'https://tossequip.net.attacker.example/e/d2695mac448xt', 'http://tossequip.net/e/d2695mac448xt', 'https://tossequip.net/e/d2695mac448xt?url=https://attacker.example', 'https://missflight.net/e/d2695mac448xt']) {
     assert.throws(() => parseCastEmbedUrl(`<iframe src="${value}"></iframe>`), /could not be found/);
   }
   assert.throws(() => parseCastEmbedUrl(`<iframe src="${embed}"></iframe><iframe src="${embed}"></iframe>`), /could not be found/);
@@ -103,8 +103,8 @@ test('independent feeds resolve and cache separately with only adapter-fixed pub
   const requests = [];
   const provider = new ChannelProvider({ verifyDns: false, fetchImpl: async (url, options) => {
     requests.push({ url, headers: options.headers });
-    if (url.startsWith('https://dlive.sx/')) return new Response('<iframe src="https://missflight.net/e/d2695mac448xt"></iframe>');
-    if (url.startsWith('https://missflight.net/')) return new Response(html);
+    if (url.startsWith('https://dlive.sx/')) return new Response('<iframe src="https://tossequip.net/e/d2695mac448xt"></iframe>');
+    if (url.startsWith('https://tossequip.net/')) return new Response(html);
     if (url.startsWith('https://dembed.st/')) return new Response(`const SRC = '${edge}/premium310/index.m3u8';`);
     if (url.endsWith('/key.bin')) return new Response('key');
     return new Response('#EXTM3U\n#EXT-X-KEY:METHOD=AES-128,URI="key.bin"\n#EXTINF:6,\nsegment.ts\n');
@@ -114,7 +114,7 @@ test('independent feeds resolve and cache separately with only adapter-fixed pub
   await provider.getPlaylist('310', 'cast');
   assert.equal(provider.sourceCache.size, 2);
   assert.equal(requests.filter(({ url }) => url.startsWith('https://dembed.st/')).length, 1);
-  assert.equal(requests.filter(({ url }) => url.startsWith('https://missflight.net/')).length, 1);
+  assert.equal(requests.filter(({ url }) => url.startsWith('https://tossequip.net/')).length, 1);
   assert.equal(requests.filter(({ url }) => url.startsWith('https://dlive.sx/')).length, 0, 'verified alternate IDs remain usable when the main website is down');
   const primaryKey = primary.body.toString().match(/URI="\/media\/([^\"]+)"/)[1];
   const alternateKey = alternate.body.toString().match(/URI="\/media\/([^\"]+)"/)[1];
@@ -122,8 +122,8 @@ test('independent feeds resolve and cache separately with only adapter-fixed pub
   await provider.getMedia(alternateKey);
   for (const { url, headers } of requests) {
     assert.deepEqual(Object.keys(headers).sort(), url.startsWith('https://dembed.st/') || url.startsWith(edge) ? ['Accept'] : ['Accept', 'Referer']);
-    if (url.startsWith('https://dlive.sx/') || url.startsWith('https://missflight.net/')) assert.equal(headers.Referer, 'https://dlive.sx/');
-    if (url.startsWith(castOrigin)) assert.equal(headers.Referer, 'https://missflight.net/');
+    if (url.startsWith('https://dlive.sx/') || url.startsWith('https://tossequip.net/')) assert.equal(headers.Referer, 'https://dlive.sx/');
+    if (url.startsWith(castOrigin)) assert.equal(headers.Referer, 'https://tossequip.net/');
   }
 });
 
