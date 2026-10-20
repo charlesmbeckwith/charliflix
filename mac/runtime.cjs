@@ -1,7 +1,13 @@
 'use strict';
 
+const { isReleasePageUrl } = require('../lib/updates.cjs');
+
 const HOST = '127.0.0.1';
 const DEFAULT_PORT = 8767;
+
+function isExternalPageUrl(value) {
+  return isReleasePageUrl(value) || value === 'https://epgtalk.com/api.html';
+}
 
 function isAppDocumentUrl(value, origin) {
   try {
@@ -81,5 +87,5 @@ async function startOwnedServer({ createServer, root, preferredPort = DEFAULT_PO
 }
 
 module.exports = {
-  HOST, DEFAULT_PORT, isAppDocumentUrl, isAppResourceUrl, allowsPermission, startOwnedServer,
+  HOST, DEFAULT_PORT, isAppDocumentUrl, isAppResourceUrl, isExternalPageUrl, allowsPermission, startOwnedServer,
 };

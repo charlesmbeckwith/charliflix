@@ -5,12 +5,15 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 const { ChannelProvider, ProviderError } = require('./lib/provider.cjs');
 const { UpdateChecker, versionMetadata } = require('./lib/updates.cjs');
+const { GuideService } = require('./lib/guide.cjs');
 const { version } = require('./package.json');
 
 const STATIC_FILES = new Map([
   ['/', ['public/index.html', 'text/html; charset=utf-8']],
   ['/index.html', ['public/index.html', 'text/html; charset=utf-8']],
   ['/app.js', ['public/app.js', 'text/javascript; charset=utf-8']],
+  ['/guide-model.js', ['public/guide-model.js', 'text/javascript; charset=utf-8']],
+  ['/guide-ui.js', ['public/guide-ui.js', 'text/javascript; charset=utf-8']],
   ['/styles.css', ['public/styles.css', 'text/css; charset=utf-8']],
   ['/favicon.svg', ['public/favicon.svg', 'image/svg+xml']],
   ['/style.css', ['public/style.css', 'text/css; charset=utf-8']],
@@ -20,6 +23,7 @@ const STATIC_FILES = new Map([
 function createServer(options = {}) {
   const provider = options.provider || new ChannelProvider();
   const updates = options.updates || new UpdateChecker();
+  const guide = options.guide || new GuideService();
   const root = path.resolve(options.root || __dirname);
   const allowedHost = options.host || process.env.CHANNEL_ROOM_HOST || '127.0.0.1';
   const server = http.createServer(async (request, response) => {
@@ -64,6 +68,13 @@ function createServer(options = {}) {
       if (url.pathname === '/api/channels') {
         return finish(200, JSON.stringify({ channels: provider.listChannels() }));
       }
+      if (url.pathname === '/api/guide') {
+        if (request.method !== 'GET') {
+          response.setHeader('Allow', 'GET');
+          throw new ProviderError('Loading the guide requires a GET request.', 'METHOD_NOT_ALLOWED', 405);
+        }
+        return finish(200, JSON.stringify(await guide.check()));
+      }
       const playlist = url.pathname.match(/^\/api\/channels\/([0-9]+)\/playlist\.m3u8$/);
       if (playlist) {
         const media = await provider.getPlaylist(playlist[1]);
@@ -99,7 +110,7 @@ function createServer(options = {}) {
   server.requestTimeout = 30_000;
   server.headersTimeout = 15_000;
   server.keepAliveTimeout = 5_000;
-  server.once('close', () => { provider.close?.(); updates.close?.(); });
+  server.once('close', () => { provider.close?.(); updates.close?.(); guide.close?.(); });
   return server;
 }
 

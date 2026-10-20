@@ -4,11 +4,29 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const http = require('node:http');
 const { once } = require('node:events');
-const { startOwnedServer, isAppDocumentUrl, isAppResourceUrl, allowsPermission } = require('../mac/runtime.cjs');
+const { startOwnedServer, isAppDocumentUrl, isAppResourceUrl, isExternalPageUrl, allowsPermission } = require('../mac/runtime.cjs');
+const { isReleasePageUrl } = require('../lib/updates.cjs');
 
 function makeServer() {
   return http.createServer((_request, response) => response.end('owned player'));
 }
+
+test('Mac external links allow only fixed attribution or existing strict release pages', () => {
+  const attribution = 'https://epgtalk.com/api.html';
+  assert.equal(isExternalPageUrl(attribution), true);
+  assert.equal(isReleasePageUrl(attribution), false, 'guide attribution does not authorize an update source');
+  for (const value of [
+    'https://github.com/charlesmbeckwith/charliflix/releases/latest',
+    'https://github.com/charlesmbeckwith/charliflix/releases/tag/v0.4.0',
+  ]) assert.equal(isExternalPageUrl(value), true, value);
+  for (const value of [
+    'http://epgtalk.com/api.html', 'https://epgtalk.com/', 'https://epgtalk.com/api/now/us.json',
+    'https://epgtalk.com/api.html?redirect=elsewhere', 'https://epgtalk.com/api.html#section', 'https://epgtalk.com/api.html/',
+    'https://epgtalk.com:443/api.html', 'https://user@epgtalk.com/api.html', 'https://epgtalk.com.attacker.example/api.html',
+    'https://attacker.example/https://epgtalk.com/api.html', 'https://github.com/charlesmbeckwith/charliflix/releases/tag/v0.4.0?redirect=elsewhere',
+    'https://github.com/charlesmbeckwith/charliflix/releases/tag/v0.4.0-beta', 'javascript:alert(1)', 'file:///api.html', null,
+  ]) assert.equal(isExternalPageUrl(value), false, value);
+});
 
 test('Mac runtime owns a loopback listener and closes it idempotently', async t => {
   const runtime = await startOwnedServer({ createServer: makeServer, root: __dirname, preferredPort: 0 });

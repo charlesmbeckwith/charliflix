@@ -37,6 +37,22 @@ internal static class DesktopUpdaterChecks
     private static void Assert(bool value, string message) { if (!value) throw new Exception(message); }
     private static async Task Run(string name)
     {
+        if (name == "external-navigation")
+        {
+            const string attribution = "https://epgtalk.com/api.html";
+            Assert(DesktopExternalNavigation.IsAllowedPage(attribution), "The exact guide attribution URL was rejected.");
+            Assert(!DesktopExternalNavigation.IsReleasePage(attribution), "Attribution must not become a release URL.");
+            foreach (string allowed in new[] { "https://github.com/charlesmbeckwith/charliflix/releases/latest", "https://github.com/charlesmbeckwith/charliflix/releases/tag/v0.4.0" })
+                Assert(DesktopExternalNavigation.IsAllowedPage(allowed) && DesktopExternalNavigation.IsReleasePage(allowed), "A previously allowed release URL was rejected.");
+            foreach (string blocked in new[] {
+                "http://epgtalk.com/api.html", "https://epgtalk.com/", "https://epgtalk.com/api/now/us.json",
+                "https://epgtalk.com/api.html?redirect=elsewhere", "https://epgtalk.com/api.html#section", "https://epgtalk.com/api.html/",
+                "https://epgtalk.com:443/api.html", "https://user@epgtalk.com/api.html", "https://epgtalk.com.attacker.example/api.html",
+                "https://attacker.example/https://epgtalk.com/api.html", "https://github.com/charlesmbeckwith/charliflix/releases/tag/v0.4.0?redirect=elsewhere",
+                "https://github.com/charlesmbeckwith/charliflix/releases/tag/v0.4.0-beta", "javascript:alert(1)", "file:///api.html", null })
+                Assert(!DesktopExternalNavigation.IsAllowedPage(blocked), "An unapproved external URL was accepted: " + blocked);
+            return;
+        }
         if (name == "framework-tls")
         {
             var attributes = typeof(DesktopUpdaterChecks).Assembly.GetCustomAttributes(typeof(TargetFrameworkAttribute), false);

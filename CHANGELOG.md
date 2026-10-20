@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.5
+
+- Added a channel guide with local times, current-show labels, and click-to-watch for airing programs.
+- Added saved scheduled channel switches from upcoming shows, with cancellation and explicit conflict replacement. Charliflix must remain open; late starts beyond five minutes and ended shows are skipped.
+- Added **G** to toggle the guide and **M** to toggle mute. Escape closes the guide before leaving theater mode.
+- Added bounded, anonymous EPGTalk listing requests with caching and recovery. The five cable channels use Eastern reference schedules; unidentified network affiliates are explicitly unmatched.
+- Kept the guide timeline and scheduled-switch list independently scrollable across narrow and short windows.
+
 ## 0.3.4
 
 - Kept the player inside the app window instead of extending the page to fit the channel list.

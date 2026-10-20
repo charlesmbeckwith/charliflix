@@ -39,7 +39,7 @@ try {
     foreach ($name in @('host.cjs', 'runtime.cjs', 'Install-Desktop.ps1')) { Add-PayloadFile (Join-Path $PSScriptRoot $name) ('desktop/' + $name) }
     Add-PayloadFile (Join-Path $PSScriptRoot 'assets\channel-room.ico') 'desktop/assets/channel-room.ico'
     foreach ($file in Get-ChildItem -LiteralPath (Join-Path $appRoot 'lib') -Filter '*.cjs' -File) { Add-PayloadFile $file.FullName ('lib/' + $file.Name) }
-    foreach ($name in @('app.js', 'styles.css', 'index.html', 'favicon.svg')) { Add-PayloadFile (Join-Path $appRoot ('public/' + $name)) ('public/' + $name) }
+    foreach ($name in @('app.js', 'guide-model.js', 'guide-ui.js', 'styles.css', 'index.html', 'favicon.svg')) { Add-PayloadFile (Join-Path $appRoot ('public/' + $name)) ('public/' + $name) }
     foreach ($name in @('LICENSE', 'package.json')) { Add-PayloadFile (Join-Path $appRoot ('node_modules/hls.js/' + $name)) ('node_modules/hls.js/' + $name) }
     Add-PayloadFile (Join-Path $appRoot 'node_modules/hls.js/dist/hls.min.js') 'node_modules/hls.js/dist/hls.min.js'
     foreach ($name in @('LICENSE', 'package.json')) { Add-PayloadFile (Join-Path $appRoot ('node_modules/pngjs/' + $name)) ('node_modules/pngjs/' + $name) }

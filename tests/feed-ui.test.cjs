@@ -22,11 +22,12 @@ function channel(id = '339', extras = {}) {
 
 // Run the real script with a small DOM/media adapter. Observe requested URLs,
 // visible controls, storage, and playback actions without exposing app state.
-async function player(channels = [channel()], stored = {}) {
+async function player(channels = [channel()], stored = {}, options = {}) {
   const nodes = new Map();
   const created = [];
   const timers = new Map();
   const storage = new Map(Object.entries(stored));
+  const documentListeners = {};
   let timerId = 0;
   let clock = 100000;
 
@@ -61,7 +62,8 @@ async function player(channels = [channel()], stored = {}) {
     pause() { this.paused = true; this.emit('pause'); }
     load() { this.currentTime = 0; }
     play() { this.paused = false; this.playCalls = (this.playCalls || 0) + 1; return Promise.resolve(); }
-    focus() {}
+    focus() { document.activeElement = this; }
+    closest() { return this.editable ? this : null; }
   }
 
   const get = id => {
@@ -76,8 +78,16 @@ async function player(channels = [channel()], stored = {}) {
     createTextNode: text => ({ textContent: text }),
     querySelector: selector => selector === '.player-controls' ? controls : get(selector),
     querySelectorAll: () => created.filter(node => node.className === 'channel-card'),
-    addEventListener() {},
+    addEventListener(name, callback) { (documentListeners[name] ??= []).push(callback); },
   };
+
+  const guide = { opened: false, toggles: 0, closes: 0,
+    isOpen() { return this.opened; },
+    toggle() { this.opened = !this.opened; this.toggles++; },
+    close() { this.opened = false; this.closes++; },
+    destroy() {},
+  };
+  let guideOptions;
 
   class Hls {
     static instances = [];
@@ -97,7 +107,7 @@ async function player(channels = [channel()], stored = {}) {
 
   const context = {
     document, Hls, console,
-    window: { Hls, scrollY: 0, scrollTo() {}, addEventListener() {} },
+    window: { Hls, scrollY: 0, scrollTo() {}, addEventListener() {}, ...(options.guide ? { CharliflixGuide: { create(value) { guideOptions = value; return guide; } }, CharliflixGuideModel: {} } : {}) },
     localStorage: { getItem: key => storage.get(key) ?? null, setItem: (key, value) => storage.set(key, value) },
     fetch: async () => ({ ok: true, json: async () => ({ channels }) }),
     setTimeout: (callback, delay) => { const id = ++timerId; timers.set(id, { callback, deadline: clock + delay }); return id; },
@@ -123,7 +133,7 @@ async function player(channels = [channel()], stored = {}) {
   }
 
   return {
-    get, body, storage, timers, elapse,
+    get, body, document, storage, timers, elapse, guide,
     get current() { return Hls.instances.at(-1); },
     get attempts() { return Hls.instances; },
     click: id => get(id).emit('click'),
@@ -131,6 +141,12 @@ async function player(channels = [channel()], stored = {}) {
     chooseFeed: feed => { get('feed-select').value = feed; get('feed-select').emit('change'); },
     fatal: (details = {}) => Hls.instances.at(-1).emit('error', { fatal: true, type: 'other', ...details }),
     playing() { get('video').paused = false; get('video').emit('playing'); },
+    key(key, extra = {}) {
+      const event = { key, target: body, defaultPrevented: false, preventDefault() { this.defaultPrevented = true; }, ...extra };
+      for (const callback of documentListeners.keydown || []) callback(event);
+      return event;
+    },
+    guideTune(id) { guideOptions.onTune(id); },
   };
 }
 
@@ -284,4 +300,47 @@ test('a channel with no enabled feeds shows an error without making a request or
   assert.equal(p.get('error-overlay').hidden, false);
   assert.match(p.get('error-detail').textContent, /No playable feeds/);
   assert.equal(p.get('next-feed').hidden, true);
+});
+
+test('mute and guide shortcuts ignore editing, modifiers, repeats and already-handled keyboard events', async () => {
+  const p = await player([channel()], {}, { guide: true });
+  assert.equal(p.get('video').muted, false);
+  assert.equal(p.key('m').defaultPrevented, true);
+  assert.equal(p.get('video').muted, true);
+  assert.equal(p.storage.get('channel-room:muted'), 'true');
+  p.key('M');
+  assert.equal(p.get('video').muted, false);
+  const editor = p.get('text-editor'); editor.editable = true;
+  for (const extra of [{ target: editor }, { ctrlKey: true }, { altKey: true }, { metaKey: true }, { repeat: true }, { isComposing: true }, { defaultPrevented: true }]) {
+    p.key('m', extra); p.key('g', extra);
+  }
+  assert.equal(p.get('video').muted, false);
+  assert.equal(p.guide.toggles, 0);
+  p.key('g');
+  assert.equal(p.guide.isOpen(), true);
+  p.key('G');
+  assert.equal(p.guide.isOpen(), false);
+});
+
+test('Escape closes the guide before exiting theater mode and restores theater control focus afterward', async () => {
+  const p = await player([channel()], {}, { guide: true });
+  p.click('theater'); p.key('g');
+  assert.equal(p.body.classList.contains('theater-mode'), true);
+  assert.equal(p.key('Escape').defaultPrevented, true);
+  assert.equal(p.guide.closes, 1);
+  assert.equal(p.body.classList.contains('theater-mode'), true);
+  p.key('Escape');
+  assert.equal(p.body.classList.contains('theater-mode'), false);
+  assert.equal(p.document.activeElement, p.get('theater'));
+});
+
+test('guide tuning uses configured channels while preserving audio, preferred feeds and theater mode', async () => {
+  const p = await player([channel(), channel('310')], { 'channel-room:feeds': '{"310":"cast"}', 'channel-room:volume': '0.42', 'channel-room:muted': 'true' }, { guide: true });
+  p.click('theater'); p.guideTune('310');
+  assert.equal(p.current.url, '/api/channels/310/feeds/cast/playlist.m3u8');
+  assert.equal(p.get('video').muted, true);
+  assert.equal(p.get('video').volume, 0.42);
+  assert.equal(p.body.classList.contains('theater-mode'), true);
+  p.guideTune('not-configured');
+  assert.equal(p.attempts.length, 1, 'unrecognized guide channels cannot start an arbitrary source');
 });

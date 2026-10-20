@@ -53,7 +53,7 @@ def audit(root: Path, application_tests: int, archive_path: Path | None = None) 
         if (root / "LICENSE").is_file():
             source_files.append(root / "LICENSE")
         source_files.extend((root / "lib").glob("*.cjs"))
-        source_files.extend(root / "public" / name for name in ("app.js", "styles.css", "index.html", "favicon.svg"))
+        source_files.extend(root / "public" / name for name in ("app.js", "guide-model.js", "guide-ui.js", "styles.css", "index.html", "favicon.svg"))
         source_files.extend(root / "node_modules" / dependency / name for dependency in ("hls.js", "pngjs") for name in ("LICENSE", "package.json"))
         source_files.append(root / "node_modules" / "hls.js" / "dist" / "hls.min.js")
         source_files.extend((root / "node_modules" / "pngjs" / "lib").glob("*.js"))

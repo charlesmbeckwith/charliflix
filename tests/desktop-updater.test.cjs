@@ -19,11 +19,11 @@ test.before(async () => {
   const compiler = path.join(process.env.WINDIR || 'C:\\Windows', 'Microsoft.NET', 'Framework64', 'v4.0.30319', 'csc.exe');
   await run(compiler, [
     '/nologo', '/target:exe', '/platform:x64', '/langversion:5', `/out:${fixture}`,
-    path.join(root, 'desktop', 'AssemblyInfo.cs'), path.join(root, 'desktop', 'DesktopUpdater.cs'), path.join(__dirname, 'fixtures', 'DesktopUpdaterChecks.cs'),
+    path.join(root, 'desktop', 'AssemblyInfo.cs'), path.join(root, 'desktop', 'ExternalNavigation.cs'), path.join(root, 'desktop', 'DesktopUpdater.cs'), path.join(__dirname, 'fixtures', 'DesktopUpdaterChecks.cs'),
   ], { windowsHide: true, timeout: 20000 });
 });
 
-for (const name of ['framework-tls', 'source-guard', 'unmanaged', 'download', 'restart-order', 'failed-shutdown', 'normal-close', 'deduplicate', 'current']) {
+for (const name of ['framework-tls', 'external-navigation', 'source-guard', 'unmanaged', 'download', 'restart-order', 'failed-shutdown', 'normal-close', 'deduplicate', 'current']) {
   test(`Windows native updater: ${name}`, { skip: process.platform !== 'win32', timeout: 20000 }, async () => {
     const result = await run(fixture, [name], { windowsHide: true, timeout: 15000 });
     assert.match(result.stdout, /passed/);

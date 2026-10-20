@@ -2,8 +2,7 @@
 
 const { app, BrowserWindow, dialog, Menu, session, shell, ipcMain } = require('electron');
 const { createServer } = require('../server.cjs');
-const { startOwnedServer, isAppDocumentUrl, isAppResourceUrl, allowsPermission } = require('./runtime.cjs');
-const { isReleasePageUrl } = require('../lib/updates.cjs');
+const { startOwnedServer, isAppDocumentUrl, isAppResourceUrl, isExternalPageUrl, allowsPermission } = require('./runtime.cjs');
 const path = require('node:path');
 const fs = require('node:fs');
 const { createUpdateNotifications } = require('./updates.cjs');
@@ -76,8 +75,8 @@ if (!app.requestSingleInstanceLock()) {
     });
     mainWindow = win;
     win.webContents.setWindowOpenHandler(details => {
-      if (isAppDocumentUrl(win.webContents.getURL(), player.origin) && isReleasePageUrl(details.url)) {
-        void shell.openExternal(details.url).catch(error => console.error('The release page could not open:', error.message));
+      if (isAppDocumentUrl(win.webContents.getURL(), player.origin) && isExternalPageUrl(details.url)) {
+        void shell.openExternal(details.url).catch(error => console.error('The approved external page could not open:', error.message));
       }
       return { action: 'deny' };
     });

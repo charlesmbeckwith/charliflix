@@ -15,11 +15,21 @@ Neither app installs a background service or adds a login startup entry. The Win
 
 Choose a channel, then use **Feed** to select Player 1 or Player 2. The app remembers your manual choice separately for each channel. It tries another available feed when a connection fails or video stalls, with a finite retry limit. You can switch feeds yourself if picture plays without sound.
 
-**Theater** fills the app window. Press **T** to toggle it or **Escape** to leave. Fullscreen fills the monitor. Volume, mute and theater settings survive feed changes.
+**Theater** fills the app window. Press **T** to toggle it or **Escape** to leave. **M** toggles mute. Fullscreen fills the monitor. Volume, mute and theater settings survive feed changes.
 
 The player fits the available window space while keeping the video's proportions. The lineup scrolls independently, so browsing channels keeps the video and controls in place. In narrow windows the lineup moves below the player and keeps its own scroll area.
 
 The lineup includes Cartoon Network, Comedy Central, FX, FXX, AMC and generic ABC, CBS, NBC, FOX and CW feeds. Network feeds are not guaranteed to be your local affiliates. PBS is currently disabled.
+
+### Guide and scheduled switches
+
+Press **G** or choose **Guide** to open the program guide. Click a show airing now to tune immediately. Click an upcoming show to save an automatic channel change; click it again or use **Cancel switch** to remove it. If two shows start at the same time, the guide asks which switch to keep. **Escape** closes the guide before leaving theater mode.
+
+Scheduled switches are saved on this device. **Keep Charliflix open**, including minimized, for a switch to run. The app does not start itself, wake a sleeping computer or install a background scheduler. On wake or reopening, a start missed by up to five minutes can run while that show is still airing; older or ended shows are skipped. Scheduling requires app storage and Web Locks support, included in current WebView2 and the Mac app.
+
+Listings come from [EPGTalk's public JSON guide](https://epgtalk.com/api.html), with a rolling window of roughly ten hours ahead. Times display in your local time zone. Current titles appear beneath the channel names and refresh automatically. The five cable channels use **Eastern reference schedules**, which may differ from the actual feed. ABC, CBS, NBC, FOX and CW are marked **Guide not matched** because these feeds do not identify their affiliates. No local-affiliate schedule is guessed.
+
+The app refreshes listings every 30 minutes and keeps a covered last-good guide in memory when the source is temporarily unavailable. Schedules already saved on this device continue to work without a guide connection. Guide requests are anonymous and send no watch queue or playback history to EPGTalk.
 
 **Availability:** third-party feeds can lose sound, stall or disappear, and multiple player choices can fail together. Player 1 corresponds to the original site's Players 1, 3 and 7, which share a source; Player 2 uses an independent provider. Version 0.3.2 updates both adapters for provider changes observed on October 17, 2026. An update check can install an adapter repair, but availability still depends on the provider.
 

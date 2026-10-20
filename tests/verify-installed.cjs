@@ -98,7 +98,7 @@ async function checkPlayer(bridge, runtime) {
   assert.equal(path.resolve(health.directory), root); assert.equal(health.port, Number(url.port));
   assert(Number.isInteger(health.pid));
   backends.push({ port: health.port, pid: health.pid, runtimeDirectory: runtime });
-  for (const [resource, mime] of [['/', 'text/html'], ['/app.js', 'text/javascript'], ['/styles.css', 'text/css'], ['/node_modules/hls.js/dist/hls.min.js', 'text/javascript']]) {
+  for (const [resource, mime] of [['/', 'text/html'], ['/app.js', 'text/javascript'], ['/guide-model.js', 'text/javascript'], ['/guide-ui.js', 'text/javascript'], ['/styles.css', 'text/css'], ['/node_modules/hls.js/dist/hls.min.js', 'text/javascript']]) {
     const response = await request(ready.url, resource);
     assert.equal(response.status, 200, `${resource} must be present in the installed payload.`);
     assert(response.type.startsWith(mime)); assert(response.body.length > 100);
@@ -135,7 +135,7 @@ async function closeBridge(bridge, origin) {
     const secondReady = await checkPlayer(second, runtime);
     assert.equal(secondReady.url, ready.url, 'The saved port must keep the settings origin stable after the preferred port becomes free.');
     await closeBridge(second, secondReady.url);
-    console.log('Installed backend: HTTP player assets, occupied-port fallback, stable saved origin and owned shutdown passed.');
+    console.log('Installed backend: HTTP player and guide assets, occupied-port fallback, stable saved origin and owned shutdown passed.');
   } finally {
     for (const bridge of bridges) {
       if (bridge.child.exitCode === null && bridge.child.signalCode === null) {

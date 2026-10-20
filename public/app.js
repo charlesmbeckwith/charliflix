@@ -78,6 +78,7 @@
   try { const choices=JSON.parse(localStorage.getItem('channel-room:feeds')||'{}'); for(const [id,feed] of Object.entries(choices||{})) if(typeof feed==='string')state.feedChoices[id]=feed; } catch {}
   video.muted = state.muted;
   video.volume = state.volume;
+  let guideController = null;
   let theater = false;
   let previousScroll = 0;
   let controlsTimer;
@@ -228,7 +229,7 @@
       const favorite=channel.pinned===true||channel.category==='favorites';if(favorite)favoriteCount++;else networkCount++;
       const button=document.createElement('button');button.type='button';button.className='channel-card';button.dataset.id=channel.id;button.setAttribute('aria-pressed','false');button.setAttribute('aria-label',`Watch ${names[channel.id]||channel.name}`);
       const badge=document.createElement('span');badge.className='channel-badge';badge.textContent=initials[channel.id]||channel.name.slice(0,2);
-      const label=document.createElement('span');const title=document.createElement('span');title.className='channel-name';title.textContent=names[channel.id]||channel.name;const detail=document.createElement('span');detail.className='channel-meta';const feedCount=playableFeeds(channel).length;detail.textContent=feedCount>1?`USA · ${feedCount} feeds`:'USA feed';label.append(title,detail);
+      const label=document.createElement('span');label.className='channel-copy';const title=document.createElement('span');title.className='channel-name';title.textContent=names[channel.id]||channel.name;const detail=document.createElement('span');detail.className='channel-meta';const feedCount=playableFeeds(channel).length;detail.textContent=feedCount>1?`USA · ${feedCount} feeds`:'USA feed';const now=document.createElement('span');now.className='channel-now';now.id=`channel-now-${channel.id}`;now.textContent='Loading guide…';button.setAttribute('aria-describedby',now.id);label.append(title,now,detail);
       const dot=document.createElement('span');dot.className='selection-indicator';dot.setAttribute('aria-hidden','true');button.append(badge,label,dot);button.addEventListener('click',()=>start(channel));
       $(favorite?'favorite-channels':'network-channels').append(button);
     }
@@ -239,13 +240,18 @@
   $('feed-select').addEventListener('change',event=>chooseFeed(event.target.value));
   $('next-feed').addEventListener('click',()=>{if(!state.selected)return;const feeds=playableFeeds(state.selected);const index=feeds.findIndex(feed=>String(feed.id)===String(state.feed?.id));chooseFeed(feeds[(index+1)%feeds.length]?.id);});
   $('play-toggle').addEventListener('click',()=>{if((!state.started||document.body.dataset.playback==='error')&&state.selected)start(state.selected,{feed:state.feed});else if(video.paused)tryPlay();else{clearTimeout(state.stallTimer);video.pause();}});
-  $('mute-toggle').addEventListener('click',()=>{video.muted=!(video.muted||video.volume===0);if(!video.muted&&video.volume===0)video.volume=0.5;state.muted=video.muted;state.volume=video.volume;saveAudio();updateAudio();});
+  function toggleMute(){video.muted=!(video.muted||video.volume===0);if(!video.muted&&video.volume===0)video.volume=0.5;state.muted=video.muted;state.volume=video.volume;saveAudio();updateAudio();}
+  $('mute-toggle').addEventListener('click',toggleMute);
   $('volume').addEventListener('input',event=>{video.volume=Number(event.target.value)/100;video.muted=video.volume===0;state.volume=video.volume;state.muted=video.muted;saveAudio();updateAudio();});
   $('go-live').addEventListener('click',()=>{const position=state.hls?.liveSyncPosition;if(Number.isFinite(position))video.currentTime=position;tryPlay();});
   $('theater').addEventListener('click',()=>setTheater(!theater));
   document.addEventListener('keydown',event=>{
-    if(event.altKey||event.ctrlKey||event.metaKey||event.repeat)return;
-    if(event.key==='Escape'&&theater&&!document.fullscreenElement){event.preventDefault();setTheater(false);$('theater').focus();}
+    if(event.defaultPrevented||event.altKey||event.ctrlKey||event.metaKey||event.repeat)return;
+    if(event.isComposing)return;
+    if(event.key==='Escape'&&guideController?.isOpen()){event.preventDefault();guideController.close();}
+    else if(!event.target.closest('input,textarea,select,[contenteditable]')&&event.key.toLowerCase()==='g'&&guideController){event.preventDefault();guideController.toggle();}
+    else if(!event.target.closest('input,textarea,select,[contenteditable]')&&event.key.toLowerCase()==='m'){event.preventDefault();toggleMute();}
+    else if(event.key==='Escape'&&theater&&!document.fullscreenElement){event.preventDefault();setTheater(false);$('theater').focus();}
     else if(event.key.toLowerCase()==='t'&&!document.fullscreenElement&&!event.target.closest('input,textarea,select,[contenteditable]')){event.preventDefault();setTheater(!theater);}
   });
   document.querySelector('.stage').addEventListener('pointermove',showTheaterControls);
@@ -261,8 +267,8 @@
   video.addEventListener('pause',()=>{showTheaterControls();if(state.started&&state.receivedPlayback&&$('error-overlay').hidden){clearTimeout(state.stallTimer);$('loading-overlay').hidden=true;status('paused','Paused','Paused · Press play to resume');}});
   video.addEventListener('error',()=>{if(state.started&&!state.hls&&$('error-overlay').hidden)advanceFeed('The player could not read this feed.');});
   video.addEventListener('volumechange',()=>{state.muted=video.muted;state.volume=video.volume;updateAudio();saveAudio();});video.addEventListener('loadedmetadata',showQuality);video.addEventListener('resize',showQuality);
-  window.addEventListener('pagehide',()=>{clearTimeout(state.retryTimer);clearTimeout(state.stallTimer);clearTimeout(controlsTimer);state.hls?.destroy();});
+  window.addEventListener('pagehide',()=>{clearTimeout(state.retryTimer);clearTimeout(state.stallTimer);clearTimeout(controlsTimer);guideController?.destroy();state.hls?.destroy();});
   try { setTheater(localStorage.getItem('channel-room:theater') === 'true'); } catch {}
   updateAudio();
-  fetch('/api/channels').then(response=>{if(!response.ok)throw new Error('The channel list is unavailable.');return response.json();}).then(data=>{state.channels=data.channels.filter(channel=>channel.enabled!==false);renderChannels(state.channels);let last='339';try{last=localStorage.getItem('channel-room:last-channel')||last;}catch{}const initial=state.channels.find(channel=>String(channel.id)===last)||state.channels[0];if(initial){select(initial);state.feed=preferredFeed(initial);renderFeeds(initial,state.feed);}else fail('No channels are configured.');}).catch(error=>fail(error.message));
+  fetch('/api/channels').then(response=>{if(!response.ok)throw new Error('The channel list is unavailable.');return response.json();}).then(data=>{state.channels=data.channels.filter(channel=>channel.enabled!==false);renderChannels(state.channels);let last='339';try{last=localStorage.getItem('channel-room:last-channel')||last;}catch{}const initial=state.channels.find(channel=>String(channel.id)===last)||state.channels[0];if(initial){select(initial);state.feed=preferredFeed(initial);renderFeeds(initial,state.feed);}else fail('No channels are configured.');if(window.CharliflixGuide&&window.CharliflixGuideModel){guideController=window.CharliflixGuide.create({channels:state.channels,channelName:channel=>names[channel.id]||channel.name,onTune:id=>{const channel=state.channels.find(item=>item.id===String(id));if(channel)start(channel);}});}}).catch(error=>fail(error.message));
 })();

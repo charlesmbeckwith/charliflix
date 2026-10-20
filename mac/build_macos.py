@@ -284,7 +284,7 @@ def build(root: Path, output: Path) -> None:
         for source in (root / "lib").glob("*.cjs"):
             shutil.copy2(source, payload / "lib" / source.name)
         (payload / "public").mkdir()
-        for name in ("app.js", "styles.css", "index.html", "favicon.svg"):
+        for name in ("app.js", "guide-model.js", "guide-ui.js", "styles.css", "index.html", "favicon.svg"):
             shutil.copy2(root / "public" / name, payload / "public" / name)
         (payload / "mac").mkdir()
         for name in ("main.cjs", "runtime.cjs", "preload.cjs", "updates.cjs"):

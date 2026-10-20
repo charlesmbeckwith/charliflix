@@ -8,7 +8,6 @@ using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Text.RegularExpressions;
 using System.Web.Script.Serialization;
 using System.Windows.Forms;
 using Microsoft.Web.WebView2.Core;
@@ -187,9 +186,9 @@ namespace ChannelRoomDesktop
                 core.NavigationStarting += delegate(object sender, CoreWebView2NavigationStartingEventArgs e) { if (!IsLocalPage(e.Uri)) e.Cancel = true; };
                 core.NewWindowRequested += delegate(object sender, CoreWebView2NewWindowRequestedEventArgs e) {
                     e.Handled = true;
-                    if (e.IsUserInitiated && IsLocalPage(core.Source) && IsReleasePage(e.Uri)) {
+                    if (e.IsUserInitiated && IsLocalPage(core.Source) && DesktopExternalNavigation.IsAllowedPage(e.Uri)) {
                         try { Process.Start(new ProcessStartInfo(e.Uri) { UseShellExecute = true }); }
-                        catch (Exception error) { Log("The release page could not open: " + error.Message); }
+                        catch (Exception error) { Log("The approved external page could not open: " + error.Message); }
                     }
                 };
                 core.PermissionRequested += delegate(object sender, CoreWebView2PermissionRequestedEventArgs e) { e.State = CoreWebView2PermissionState.Deny; };
@@ -266,13 +265,6 @@ namespace ChannelRoomDesktop
             updateTimer.Dispose();
             closeComplete = true;
             Close();
-        }
-
-        private static bool IsReleasePage(string address)
-        {
-            return address != null && Regex.IsMatch(address,
-                @"\Ahttps://github\.com/charlesmbeckwith/charliflix/releases/(?:latest|tag/v(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*))\z",
-                RegexOptions.CultureInvariant);
         }
 
         private void OnHostMessage(object sender, DataReceivedEventArgs e)
