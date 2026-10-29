@@ -1,13 +1,13 @@
 [
-  { "id": "339", "name": "Cartoon Network", "category": "favorites", "pinned": true, "enabled": true },
+  { "id": "339", "name": "Cartoon Network", "category": "favorites", "pinned": true, "enabled": true, "castEmbedId": "jme63v4qo6czg" },
   { "id": "310", "name": "Comedy Central", "category": "favorites", "pinned": true, "enabled": true, "castEmbedId": "d2695mac448xt" },
   { "id": "317", "name": "FX", "category": "favorites", "pinned": true, "enabled": true, "castEmbedId": "86xmanrg4v9h9" },
   { "id": "298", "name": "FXX", "category": "favorites", "pinned": true, "enabled": true, "castEmbedId": "3hqc7p70dn94" },
   { "id": "303", "name": "AMC", "category": "favorites", "pinned": true, "enabled": true, "castEmbedId": "03pax86wzf579" },
-  { "id": "51", "name": "ABC USA", "category": "networks", "enabled": true },
-  { "id": "52", "name": "CBS USA", "category": "networks", "enabled": true },
+  { "id": "51", "name": "ABC USA", "category": "networks", "enabled": true, "castEmbedId": "7i3s718z15a43" },
+  { "id": "52", "name": "CBS USA", "category": "networks", "enabled": true, "castEmbedId": "lavhl7hu21e40" },
   { "id": "53", "name": "NBC USA", "category": "networks", "enabled": true, "castEmbedId": "86xb8ohg1k53f" },
-  { "id": "54", "name": "FOX USA", "category": "networks", "enabled": true },
+  { "id": "54", "name": "FOX USA", "category": "networks", "enabled": true, "castEmbedId": "2vrq2wfdexcup" },
   { "id": "210", "name": "PBS USA", "category": "networks", "enabled": false },
-  { "id": "300", "name": "CW USA", "category": "networks", "enabled": true }
+  { "id": "300", "name": "CW USA", "category": "networks", "enabled": true, "castEmbedId": "w09lxoft4ldpw" }
 ]

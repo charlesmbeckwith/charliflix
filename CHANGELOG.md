@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.6
+
+- Restored Cartoon Network Player 2 by saving its verified alternate address, avoiding a wrapper that now redirects to the provider's new website.
+- Saved the verified alternate addresses for ABC, CBS, FOX and CW, and updated the fallback wrapper resolver to the current site.
+- Restored Player 1 for the provider's newly observed edge while retaining exact-origin, redirect, DNS and token restrictions.
+- Made automatic fallback explicit: the player names the failed feed and the next attempt, and an exhausted error lists the actual attempt order. Saved manual feed preferences remain unchanged.
+- Added regressions for manual Cartoon Network Player 2 selection, fallback history, provider migration and authorization security.
+
 ## 0.3.5
 
 - Added a channel guide with local times, current-show labels, and click-to-watch for airing programs.

@@ -20,18 +20,35 @@ test('an unconfigured alternate follows the current wrapper embed and uses its f
   const requests = [];
   const provider = new ChannelProvider({ verifyDns: false, fetchImpl: async (url, options) => {
     requests.push({ url, headers: options.headers });
-    if (url === 'https://dlive.sx/cast/stream-339.php') return new Response(`<iframe src="${currentEmbed}"></iframe>`);
+    if (url === 'https://thedaddy.pk/cast/stream-339.php') return new Response(`<iframe src="${currentEmbed}"></iframe>`);
     if (url === currentEmbed) return new Response(playerFixture(source));
     if (url === source) return new Response('#EXTM3U\n#EXTINF:6,\nsegment.ts\n');
     throw new Error('Unexpected request');
   } });
+  const configuredChannel = provider.channel.bind(provider);
+  provider.channel = id => { const { castEmbedId, ...channel } = configuredChannel(id); return channel; };
   t.after(() => provider.close());
 
   const playlist = await provider.getPlaylist('339', 'cast');
   assert.match(playlist.body.toString(), /\/media\/[A-Za-z0-9_-]{32}/);
-  assert.deepEqual(requests.map(item => item.url), ['https://dlive.sx/cast/stream-339.php', currentEmbed, source]);
-  assert.deepEqual(requests.map(item => item.headers.Referer), ['https://dlive.sx/', 'https://dlive.sx/', 'https://tossequip.net/']);
+  assert.deepEqual(requests.map(item => item.url), ['https://thedaddy.pk/cast/stream-339.php', currentEmbed, source]);
+  assert.deepEqual(requests.map(item => item.headers.Referer), ['https://thedaddy.pk/', 'https://thedaddy.pk/', 'https://tossequip.net/']);
   for (const { headers } of requests) assert.deepEqual(Object.keys(headers).sort(), ['Accept', 'Referer']);
+});
+
+test('Cartoon Network uses its verified alternate embed without depending on the migrated wrapper', async t => {
+  const requests = [];
+  const source = `${castOrigin}/hls/cartoon-network.m3u8?s=fixture&e=123`;
+  const provider = new ChannelProvider({ verifyDns: false, fetchImpl: async url => {
+    requests.push(url);
+    if (url === currentEmbed) return new Response(playerFixture(source));
+    if (url === source) return new Response('#EXTM3U\n#EXTINF:6,\nsegment.ts\n');
+    throw new Error('No website wrapper or default player should be requested');
+  } });
+  t.after(() => provider.close());
+  const playlist = await provider.getPlaylist('339', 'cast');
+  assert.match(playlist.body.toString(), /\/media\/[A-Za-z0-9_-]{32}/);
+  assert.deepEqual(requests, [currentEmbed, source]);
 });
 
 test('a configured alternate rejects redirects outside its exact current embed', async t => {

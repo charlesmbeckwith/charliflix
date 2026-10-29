@@ -122,7 +122,7 @@ test('independent feeds resolve and cache separately with only adapter-fixed pub
   await provider.getMedia(alternateKey);
   for (const { url, headers } of requests) {
     assert.deepEqual(Object.keys(headers).sort(), url.startsWith('https://dembed.st/') || url.startsWith(edge) ? ['Accept'] : ['Accept', 'Referer']);
-    if (url.startsWith('https://dlive.sx/') || url.startsWith('https://tossequip.net/')) assert.equal(headers.Referer, 'https://dlive.sx/');
+    if (url.startsWith('https://thedaddy.pk/') || url.startsWith('https://tossequip.net/')) assert.equal(headers.Referer, 'https://thedaddy.pk/');
     if (url.startsWith(castOrigin)) assert.equal(headers.Referer, 'https://tossequip.net/');
   }
 });

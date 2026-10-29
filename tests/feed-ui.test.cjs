@@ -200,6 +200,49 @@ test('fatal failures try each enabled feed once without overwriting the manual p
   assert.equal(p.current.url, '/api/channels/339/feeds/stream/playlist.m3u8');
 });
 
+test('a manual Cartoon Network Player 2 choice is requested first and a fast fallback explains both attempts', async () => {
+  const p = await player();
+  p.chooseFeed('cast');
+  assert.equal(p.current.url, '/api/channels/339/feeds/cast/playlist.m3u8');
+  assert.equal(p.get('feed-select').value, 'cast');
+  p.fatal({ type: 'network', details: 'manifestLoadError' });
+  assert.equal(p.current.url, '/api/channels/339/feeds/stream/playlist.m3u8');
+  assert.match(p.get('loading-text').textContent, /Player 2 failed; trying Player 1/);
+  assert.match(p.get('playback-note').textContent, /Player 2 failed; trying Player 1/);
+  p.get('video').emit('waiting');
+  assert.match(p.get('loading-text').textContent, /Player 2 failed; buffering Player 1/);
+  assert.match(p.get('playback-note').textContent, /Player 2 failed; waiting for Player 1/);
+  p.fatal({ type: 'network', details: 'fragLoadError' });
+  assert.match(p.get('playback-note').textContent, /Player 2 failed; reconnecting to Player 1/);
+  p.elapse(1500);
+  assert.equal(p.get('feed-select').value, 'stream', 'the selector describes the active attempt');
+  assert.equal(JSON.parse(p.storage.get('channel-room:feeds'))['339'], 'cast', 'fallback never replaces the manual preference');
+  p.fatal({ type: 'network', details: 'manifestLoadError' });
+  assert.match(p.get('error-detail').textContent, /Player 2 → Player 1/);
+  assert.equal(p.attempts.length, 2);
+  p.selectChannel('339');
+  assert.equal(p.current.url, '/api/channels/339/feeds/cast/playlist.m3u8', 'returning to the channel still honors the saved Player 2 choice');
+});
+
+test('fallback history follows actual requests across additional configured feeds and clears on playback', async () => {
+  const p = await player([channel('339', { feeds: [
+    { id: 'stream', label: 'Player 1' }, { id: 'cast', label: 'Player 2' }, { id: 'plus', label: 'Player 4' },
+  ] })]);
+  p.chooseFeed('cast');
+  p.fatal();
+  p.fatal();
+  assert.equal(p.current.url, '/api/channels/339/feeds/plus/playlist.m3u8');
+  assert.match(p.get('playback-note').textContent, /Player 1 failed; trying Player 4/);
+  p.playing();
+  assert.equal(p.get('playback-note').textContent, 'Watching live · Player 4');
+  p.get('video').emit('waiting');
+  assert.equal(p.get('playback-note').textContent, 'Waiting for Player 4', 'success clears the obsolete failure explanation');
+  p.fatal();
+  assert.match(p.get('error-detail').textContent, /Player 2 → Player 1 → Player 4/);
+  assert.equal(p.attempts.length, 3);
+  assert.equal(JSON.parse(p.storage.get('channel-room:feeds'))['339'], 'cast');
+});
+
 test('network retries and media recovery are bounded before advancing feeds', async () => {
   const p = await player();
   p.click('start-watching');
