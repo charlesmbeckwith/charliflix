@@ -303,6 +303,54 @@ test('startup and repeated buffering have a finite deadline and exhausted feeds 
   assert.equal(p.attempts.length, 2);
 });
 
+test('five enabled feeds exhaust in order within one manual and four shorter automatic startup deadlines', async () => {
+  const p = await player([channel('339', { feeds: [
+    { id: 'stream', label: 'Player 1' },
+    { id: 'blocked', label: 'Blocked player', enabled: false, reason: 'Provider unavailable' },
+    { id: 'cast', label: 'Player 2' }, { id: 'plus', label: 'Player 4' },
+    { id: 'casting', label: 'Player 5' }, { id: 'kso', label: 'Player 6' },
+  ] })]);
+  p.chooseFeed('stream');
+  p.elapse(20000);
+  p.get('video').emit('waiting');
+  p.elapse(14999);
+  assert.equal(p.attempts.length, 1, 'the initial manual attempt retains its 35-second startup allowance');
+  p.elapse(1);
+  for (const [index, feed] of ['cast', 'plus', 'casting', 'kso'].entries()) {
+    const attempt = p.current;
+    assert.equal(attempt.url, `/api/channels/339/feeds/${feed}/playlist.m3u8`);
+    p.elapse(5000); p.get('video').emit('waiting');
+    p.elapse(5000); p.get('video').emit('waiting');
+    p.elapse(4999); p.get('video').emit('waiting');
+    assert.equal(p.current, attempt, 'automatic startup gets the complete 15-second allowance');
+    p.elapse(1);
+    if (index < 3) assert.equal(attempt.destroyed, true, 'waiting events cannot extend automatic startup');
+  }
+  assert.deepEqual(p.attempts.map(attempt => attempt.url), ['stream', 'cast', 'plus', 'casting', 'kso'].map(feed => `/api/channels/339/feeds/${feed}/playlist.m3u8`));
+  assert.equal(p.get('error-overlay').hidden, false);
+  assert.match(p.get('error-detail').textContent, /Player 1 → Player 2 → Player 4 → Player 5 → Player 6/);
+  assert.equal(JSON.parse(p.storage.get('channel-room:feeds'))['339'], 'stream');
+  assert.equal(p.timers.size, 0);
+  p.elapse(120000);
+  assert.equal(p.attempts.length, 5, 'exhausted feeds never restart themselves');
+});
+
+test('a new manual choice after automatic fallback restores the full manual startup allowance', async () => {
+  const p = await player([channel('339', { feeds: [
+    { id: 'stream', label: 'Player 1' }, { id: 'cast', label: 'Player 2' }, { id: 'plus', label: 'Player 4' },
+  ] })]);
+  p.click('start-watching'); p.fatal();
+  assert.equal(p.get('feed-select').value, 'cast');
+  p.chooseFeed('plus');
+  const manual = p.current;
+  p.elapse(20000); p.get('video').emit('waiting');
+  p.elapse(14999);
+  assert.equal(p.current, manual);
+  p.elapse(1);
+  assert.equal(p.current.url, '/api/channels/339/feeds/stream/playlist.m3u8');
+  assert.equal(JSON.parse(p.storage.get('channel-room:feeds'))['339'], 'plus');
+});
+
 test('real playback progress refreshes the deadline while a user pause never triggers failover', async () => {
   const p = await player();
   p.click('start-watching');

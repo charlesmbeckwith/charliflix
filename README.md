@@ -13,7 +13,9 @@ Neither app installs a background service or adds a login startup entry. The Win
 
 ## Watching
 
-Choose a channel, then use **Feed** to select Player 1 or Player 2. The app remembers your manual choice separately for each channel. It tries another available feed when a connection fails or video stalls, with a finite retry limit. A fallback says which player failed and which is being tried; if all fail, the error lists their actual attempt order. Automatic fallback preserves your saved manual choice. You can switch feeds yourself if picture plays without sound.
+Choose a channel, then use **Feed** to select a source. Every channel has Player 1 and Player 2; **ABC, CBS, NBC and FOX also have CDNLiveTV** as a third option. The app remembers your manual choice separately for each channel. It tries another available feed when a connection fails or video stalls, with a finite retry limit. A fallback says which player failed and which is being tried; if all fail, the error lists their actual attempt order. Automatic fallback preserves your saved manual choice. You can switch feeds yourself if picture plays without sound.
+
+Manual attempts have up to 35 seconds to start. Automatic fallback attempts have 15 seconds each, so adding sources does not add another 35-second wait for every failed option. Once playback starts, the normal playback-progress and pause handling apply. Only the selected source is loaded.
 
 **Theater** fills the app window. Press **T** to toggle it or **Escape** to leave. **M** toggles mute. Fullscreen fills the monitor. Volume, mute and theater settings survive feed changes.
 
@@ -31,7 +33,11 @@ Listings come from [EPGTalk's public JSON guide](https://epgtalk.com/api.html), 
 
 The app refreshes listings every 30 minutes and keeps a covered last-good guide in memory when the source is temporarily unavailable. Schedules already saved on this device continue to work without a guide connection. Guide requests are anonymous and send no watch queue or playback history to EPGTalk.
 
-**Availability:** third-party feeds can lose sound, stall or disappear, and multiple player choices can fail together. The original site has seven player buttons. Players 1, 3 and 7 share a source; Player 2 uses an independent provider. Players 4, 5 and 6 use three other providers, but checks on October 28, 2026 did not find a working additional feed for Cartoon Network. The app exposes the two supported feeds. Version 0.3.6 follows the site's move from dlive.sx to thedaddy.pk, saves the verified alternate addresses for all enabled channels, and recognizes the primary provider's newly observed edge. An update check can install an adapter repair, but availability still depends on the provider.
+**Availability:** third-party feeds can lose sound, stall or disappear, and multiple player choices can fail together. The original site has seven player buttons. Players 1, 3 and 7 share a source; Player 2 uses an independent provider. The remaining slots use different embedded providers depending on the channel. An October 28, 2026 check covered those three slots across all ten channels; errors, interactive verification or stale content prevented additional working sources from those slots. See the [channel-by-channel findings](docs/feed-availability.md).
+
+CDNLiveTV uses the exact `ABC US`, `CBS US`, `NBC US` and `FOX US` entries in [its documented public free catalog](https://cdnlivetv.tv/). The app reads the public player's literal data without loading its page or scripts into the interface. Those network affiliates remain unidentified, so their guide listings stay unmatched. No corresponding cable or CW entries were found in that catalog.
+
+Version 0.3.6 follows the original site's move from dlive.sx to thedaddy.pk, saves verified alternate addresses, and recognizes the primary provider's newly observed edge. An update check can install an adapter repair, but availability still depends on the provider.
 
 ## Updates
 

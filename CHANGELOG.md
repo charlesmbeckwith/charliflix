@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.7
+
+- Added CDNLiveTV as a third feed for ABC, CBS, NBC and FOX, using exact matches from its documented public free catalog.
+- Kept the extra feed specific to those four networks; unmatched cable, CW and similarly named news/sports channels are not substituted.
+- Added bounded literal-data parsing, exact public player/media routes, channel matching, redirect/DNS guards and isolated resource caches for the new provider.
+- Limited automatic fallback startup to 15 seconds per source while retaining 35 seconds for a manual attempt, normal playback recovery and saved manual choices.
+- Checked the original site's three extra player slots across all ten channels and documented the unavailable, verification-gated and stale results.
+
 ## 0.3.6
 
 - Restored Cartoon Network Player 2 by saving its verified alternate address, avoiding a wrapper that now redirects to the provider's new website.

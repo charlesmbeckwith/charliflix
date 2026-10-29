@@ -73,7 +73,7 @@
   }).catch(() => {});
   const initials = { '339':'CN', '310':'CC', '317':'FX', '298':'FXX', '303':'AMC', '51':'abc', '52':'CBS', '53':'NBC', '54':'FOX', '210':'PBS', '300':'CW' };
   const names = { '339':'Cartoon Network', '310':'Comedy Central', '317':'FX', '298':'FXX', '303':'AMC', '51':'ABC', '52':'CBS', '53':'NBC', '54':'FOX', '210':'PBS', '300':'CW' };
-  const state = { channels:[], selected:null, hls:null, started:false, retries:0, mediaRecoveries:0, generation:0, retryTimer:null, stallTimer:null, muted:false, volume:0.75, feed:null, attemptedFeeds:new Set(), feedChoices:Object.create(null), fallbackFrom:'', receivedPlayback:false, lastTime:0, lastProgressAt:0 };
+  const state = { channels:[], selected:null, hls:null, started:false, retries:0, mediaRecoveries:0, generation:0, retryTimer:null, stallTimer:null, muted:false, volume:0.75, feed:null, attemptedFeeds:new Set(), feedChoices:Object.create(null), fallbackFrom:'', startupDelay:35000, receivedPlayback:false, lastTime:0, lastProgressAt:0 };
   try { state.muted = localStorage.getItem('channel-room:muted') === 'true'; const stored = localStorage.getItem('channel-room:volume'); if(stored !== null && Number.isFinite(Number(stored))) state.volume = Math.min(1,Math.max(0,Number(stored))); } catch {}
   try { const choices=JSON.parse(localStorage.getItem('channel-room:feeds')||'{}'); for(const [id,feed] of Object.entries(choices||{})) if(typeof feed==='string')state.feedChoices[id]=feed; } catch {}
   video.muted = state.muted;
@@ -196,6 +196,7 @@
     select(channel);state.started=true;state.retries=0;state.mediaRecoveries=0;state.receivedPlayback=false;state.lastTime=0;state.lastProgressAt=Date.now();
     state.feed=options.feed||preferredFeed(channel);
     state.fallbackFrom=options.automatic?options.failedFeed||'The previous feed':'';
+    state.startupDelay=options.automatic?15000:35000;
     state.attemptedFeeds=options.attemptedFeeds?new Set(options.attemptedFeeds):new Set();
     renderFeeds(channel,state.feed);
     if(!state.feed){fail('No playable feeds are configured for this channel.');return;}
@@ -205,7 +206,7 @@
     $('loading-text').textContent=options.automatic?`${feedProgress('Trying')}…`:`Tuning in to ${names[channel.id]||channel.name}…`;
     $('go-live').disabled=true;$('quality-label').textContent='—';
     status('loading','Connecting',feedProgress(options.automatic?'Trying':'Connecting to'));
-    armStallTimer(35000);
+    armStallTimer(state.startupDelay);
     const base=`/api/channels/${encodeURIComponent(channel.id)}`;
     const source=state.feed.legacy?`${base}/playlist.m3u8`:`${base}/feeds/${encodeURIComponent(state.feed.id)}/playlist.m3u8`;
     if(window.Hls?.isSupported()) {
@@ -265,7 +266,7 @@
   $('fullscreen').addEventListener('click',async()=>{try{if(document.fullscreenElement)await document.exitFullscreen();else{video.controls=true;await video.requestFullscreen();}}catch{video.controls=false;$('playback-note').textContent='Fullscreen needs an active browser window';}});
   document.addEventListener('fullscreenchange',()=>{video.controls=document.fullscreenElement===video;$('fullscreen').setAttribute('aria-label',document.fullscreenElement?'Exit fullscreen':'Enter fullscreen');});
   video.addEventListener('playing',()=>{if(document.body.dataset.playback==='paused')state.lastProgressAt=Date.now();state.receivedPlayback=true;state.fallbackFrom='';$('idle-slate').hidden=true;$('error-overlay').hidden=true;$('loading-overlay').hidden=true;$('go-live').disabled=false;status('playing','Live',`Watching live · ${feedLabel()}`);showQuality();showTheaterControls();armStallTimer();});
-  video.addEventListener('waiting',()=>{if(state.started&&$('error-overlay').hidden&&(!video.paused||!state.receivedPlayback)){$('loading-overlay').hidden=false;$('loading-text').textContent=`${feedProgress('Buffering')}…`;status('buffering','Buffering',feedProgress('Waiting for'));armStallTimer();}});
+  video.addEventListener('waiting',()=>{if(state.started&&$('error-overlay').hidden&&(!video.paused||!state.receivedPlayback)){$('loading-overlay').hidden=false;$('loading-text').textContent=`${feedProgress('Buffering')}…`;status('buffering','Buffering',feedProgress('Waiting for'));armStallTimer(state.receivedPlayback?25000:state.startupDelay);}});
   video.addEventListener('timeupdate',()=>{if(state.started&&!video.paused&&$('error-overlay').hidden&&Math.abs(video.currentTime-state.lastTime)>0.05){state.lastTime=video.currentTime;state.lastProgressAt=Date.now();armStallTimer();}});
   video.addEventListener('pause',()=>{showTheaterControls();if(state.started&&state.receivedPlayback&&$('error-overlay').hidden){clearTimeout(state.stallTimer);$('loading-overlay').hidden=true;status('paused','Paused','Paused · Press play to resume');}});
   video.addEventListener('error',()=>{if(state.started&&!state.hls&&$('error-overlay').hidden)advanceFeed('The player could not read this feed.');});
