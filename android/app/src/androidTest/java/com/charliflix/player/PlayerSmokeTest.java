@@ -95,7 +95,16 @@ public final class PlayerSmokeTest extends InstrumentationTestCase {
         Activity recreated = instrumentation.waitForMonitorWithTimeout(monitor, 10000);
         instrumentation.removeMonitor(monitor);
         assertNotNull("Activity recreated", recreated);
-        awaitPlayer(recreated);
+        WebView recreatedWeb = awaitPlayer(recreated);
+        evaluate(recreatedWeb, "setTimeout(()=>document.body.dataset.charliflixSmokeTimer='fired',25);true");
+        long timerDeadline = android.os.SystemClock.elapsedRealtime() + 3000;
+        String timerState;
+        do {
+            timerState = evaluate(recreatedWeb, "document.body.dataset.charliflixSmokeTimer||''");
+            if ("\"fired\"".equals(timerState)) break;
+            Thread.sleep(50);
+        } while (android.os.SystemClock.elapsedRealtime() < timerDeadline);
+        assertEquals("Activity recreation resumes process-wide WebView timers", "\"fired\"", timerState);
         JSONObject after = new JSONObject(get(origin + "/api/health"));
         assertEquals("Recreation reuses the same backend process", health.getLong("pid"), after.getLong("pid"));
         assertEquals("Recreation preserves the origin and preferences", origin, awaitReady(readyFile).getString("origin"));

@@ -141,7 +141,15 @@ public final class MainActivity extends Activity implements BackendRuntime.Liste
         });
         root.addView(web, 0, matchParent());
         web.setVisibility(View.VISIBLE);
-        if (paused) web.onPause();
+        // WebView timers are process-wide. A previous Activity may have paused
+        // them before this replacement view was created after onResume.
+        if (paused) {
+            web.onPause();
+            web.pauseTimers();
+        } else {
+            web.resumeTimers();
+            web.onResume();
+        }
     }
 
     private boolean isLocal(String value) {
