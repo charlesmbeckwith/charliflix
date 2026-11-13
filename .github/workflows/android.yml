@@ -52,7 +52,11 @@ jobs:
           set -euo pipefail
           test -e /dev/kvm
           sudo chmod a+rw /dev/kvm
-          printf 'no\n' | avdmanager create avd --force --name charliflix-smoke --package 'system-images;android-33;google_apis;x86_64' --device pixel_2
+          export ANDROID_AVD_HOME="$RUNNER_TEMP/charliflix-avd"
+          export ANDROID_USER_HOME="$RUNNER_TEMP/charliflix-android"
+          mkdir -p "$ANDROID_AVD_HOME" "$ANDROID_USER_HOME"
+          printf 'no\n' | avdmanager create avd --force --name charliflix-smoke --path "$ANDROID_AVD_HOME/charliflix-smoke.avd" --package 'system-images;android-33;google_apis;x86_64' --device pixel_2
+          "$ANDROID_HOME/emulator/emulator" -list-avds | grep -Fx charliflix-smoke
           "$ANDROID_HOME/emulator/emulator" -avd charliflix-smoke -no-window -no-audio -no-snapshot -no-boot-anim -gpu swiftshader_indirect > "$RUNNER_TEMP/emulator.log" 2>&1 &
           timeout 120 adb wait-for-device
           for attempt in $(seq 1 120); do
