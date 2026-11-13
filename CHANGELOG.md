@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.3.8
+## 0.3.9
 
 - Added an initial Android ARM64 beta for Android 8 and newer, including Retroid Pocket Nova controls and larger touch targets. The signed APK includes its own local backend and needs no PC or hosted service.
 - Added D-pad focus, A to select, B to go back, X to mute, Y for the guide, L1/R1 for channel changes and Start for theater mode. Android pauses playback and browser timers in the background; scheduled switches require the app in the foreground.

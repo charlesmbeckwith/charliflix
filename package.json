@@ -1,6 +1,6 @@
 {
   "name": "charliflix",
-  "version": "0.3.8",
+  "version": "0.3.9",
   "private": true,
   "description": "A local channel player with a bounded public-stream resolver and media adapter.",
   "repository": {

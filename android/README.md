@@ -6,7 +6,7 @@ Actual launch, sound, playback and controller behavior on the Nova still need de
 
 ## Install and update
 
-1. On the Nova, open [Charliflix Releases](https://github.com/charlesmbeckwith/charliflix/releases/latest) and download **Charliflix-v0.3.8-Android-arm64.apk**.
+1. On the Nova, open [Charliflix Releases](https://github.com/charlesmbeckwith/charliflix/releases/latest) and download **Charliflix-v0.3.9-Android-arm64.apk**.
 2. Open the downloaded APK. If Android asks, allow this browser or file manager to install the downloaded app, then approve installation.
 3. Open **Charliflix** from the launcher and choose a channel.
 

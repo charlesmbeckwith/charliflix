@@ -8,7 +8,7 @@ Get a package from [GitHub Releases](https://github.com/charlesmbeckwith/charlif
 
 - **Windows x64:** use **Charliflix-Setup.exe** for automatic updates. Node is included; the installer checks the .NET Framework 4.8 and Microsoft WebView2 requirements. The portable ZIP remains available for manual installations.
 - **Apple Silicon Mac:** requires an M1 or newer Mac and macOS 13 or newer. Unzip and move `Charliflix.app` to Applications. The app includes its own runtime. This personal test build is ad-hoc signed and unnotarized; actual Mac launch and playback still need verification, and macOS may block it.
-- **Android ARM64 — initial beta:** install **Charliflix-v0.3.8-Android-arm64.apk** on Android 8 or newer, including the Retroid Pocket Nova. The APK includes the player and local backend; no PC, server account or additional service is needed. It uses the device's Android System WebView. Actual Nova launch, playback and controller behavior still need device verification. See [Android installation and build notes](android/README.md).
+- **Android ARM64 — initial beta:** install **Charliflix-v0.3.9-Android-arm64.apk** on Android 8 or newer, including the Retroid Pocket Nova. The APK includes the player and local backend; no PC, server account or additional service is needed. It uses the device's Android System WebView. Actual Nova launch, playback and controller behavior still need device verification. See [Android installation and build notes](android/README.md).
 
 The apps do not install a background service or add a login startup entry. The Windows installer creates the normal application shortcuts; the Android APK adds a normal launcher app.
 

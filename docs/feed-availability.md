@@ -2,7 +2,7 @@
 
 Checked October 28, 2026 (America/Los_Angeles). These observations can change when providers recover or move. They describe the sources checked, not permanent channel availability.
 
-## Sources supported by Charliflix 0.3.8
+## Sources supported by Charliflix 0.3.9
 
 | Channels | Feed choices |
 | --- | --- |

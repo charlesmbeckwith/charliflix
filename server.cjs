@@ -6,12 +6,14 @@ const path = require('node:path');
 const { ChannelProvider, ProviderError } = require('./lib/provider.cjs');
 const { UpdateChecker, versionMetadata } = require('./lib/updates.cjs');
 const { GuideService } = require('./lib/guide.cjs');
+const { mergeArchiveGuide } = require('./lib/guide-composition.cjs');
 const { version } = require('./package.json');
 
 const STATIC_FILES = new Map([
   ['/', ['public/index.html', 'text/html; charset=utf-8']],
   ['/index.html', ['public/index.html', 'text/html; charset=utf-8']],
   ['/app.js', ['public/app.js', 'text/javascript; charset=utf-8']],
+  ['/android-controls.js', ['public/android-controls.js', 'text/javascript; charset=utf-8']],
   ['/guide-model.js', ['public/guide-model.js', 'text/javascript; charset=utf-8']],
   ['/guide-ui.js', ['public/guide-ui.js', 'text/javascript; charset=utf-8']],
   ['/styles.css', ['public/styles.css', 'text/css; charset=utf-8']],
@@ -36,7 +38,7 @@ function createServer(options = {}) {
     response.setHeader('Referrer-Policy', 'no-referrer');
     response.setHeader('Cross-Origin-Resource-Policy', 'same-origin');
     response.setHeader('X-Frame-Options', 'DENY');
-    response.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; media-src 'self' blob:; worker-src 'self' blob:; img-src 'self' data:; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'");
+    response.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; media-src 'self' blob: https://archive.org https://*.archive.org; worker-src 'self' blob:; img-src 'self' data:; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'");
     try {
       let authority;
       try { authority = new URL(`http://${request.headers.host || ''}`); } catch { throw new ProviderError('Invalid request host.', 'INVALID_HOST', 403); }
@@ -68,12 +70,19 @@ function createServer(options = {}) {
       if (url.pathname === '/api/channels') {
         return finish(200, JSON.stringify({ channels: provider.listChannels() }));
       }
+      const filePlayback = url.pathname.match(/^\/api\/channels\/([0-9]+)\/playback$/);
+      if (filePlayback) return finish(200, JSON.stringify(await provider.getPlayback(filePlayback[1])));
       if (url.pathname === '/api/guide') {
         if (request.method !== 'GET') {
           response.setHeader('Allow', 'GET');
           throw new ProviderError('Loading the guide requires a GET request.', 'METHOD_NOT_ALLOWED', 405);
         }
-        return finish(200, JSON.stringify(await guide.check()));
+        if (typeof provider.getArchiveGuide !== 'function') return finish(200, JSON.stringify(await guide.check()));
+        const [normal, archive] = await Promise.allSettled([guide.check(), provider.getArchiveGuide()]);
+        const normalGuide = normal.status === 'fulfilled' ? normal.value : guide.snapshot?.() || {
+          status: 'unavailable', from: null, until: null, fetchedAt: null, updatedAt: null, channels: [],
+        };
+        return finish(200, JSON.stringify(mergeArchiveGuide(normalGuide, archive.status === 'fulfilled' ? archive.value : null)));
       }
       const playlist = url.pathname.match(/^\/api\/channels\/([0-9]+)\/playlist\.m3u8$/);
       if (playlist) {
