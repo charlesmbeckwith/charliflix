@@ -90,7 +90,7 @@
         const row = rowFor(channel.id);
         const text = programme?.title || (!data ? 'Loading guide…' : row?.status === 'unmapped' ? 'Guide not matched' : 'Listings unavailable');
         if (label.textContent !== text) label.textContent = text;
-        label.title = programme ? `${programme.title} · ${range(programme)} · Eastern reference schedule` : row?.reason || text;
+        label.title = programme ? `${programme.title} · ${range(programme)} · ${row?.scheduleNote || 'Eastern reference schedule'}` : row?.reason || text;
       }
     }
 
@@ -166,11 +166,13 @@
         tune.dataset.guideChannel = channel.id;
         tune.type = 'button'; tune.setAttribute('aria-label', `Watch ${channel.name}`);
         tune.addEventListener('click', () => { close(); options.onTune(channel.id); });
-        channelCell.append(tune, node('span', 'guide-channel-note', row?.status === 'unmapped' ? 'Affiliate unknown' : 'Eastern guide'));
+        const note = node('span', 'guide-channel-note', row?.id === '1054' ? 'Archive rotation' : row?.status === 'unmapped' ? 'Affiliate unknown' : 'Eastern guide');
+        note.title = row?.scheduleNote || '';
+        channelCell.append(tune, note);
         const track = node('div', 'guide-track');
         const programmes = (row?.programmes || []).filter(item => item.end > windowStart && item.start < windowStart + WINDOW);
         if (!programmes.length) {
-          const empty = node('p', 'guide-empty-track', !data ? 'Loading listings…' : row?.status === 'unmapped' ? 'Guide unavailable · affiliate not identified' : 'No listings for this time');
+          const empty = node('p', 'guide-empty-track', !data ? 'Loading listings…' : row?.id === '1054' && row.status !== 'ready' ? 'Archive rotation unavailable' : row?.status === 'unmapped' ? 'Guide unavailable · affiliate not identified' : 'No listings for this time');
           track.append(empty);
         }
         for (const programme of programmes) {
@@ -185,7 +187,7 @@
           const action = past ? 'Ended' : live ? 'Watch now' : scheduled ? 'Scheduled ✓' : 'Schedule';
           button.setAttribute('aria-label', `${programme.title}, ${when(programme.start)} to ${time.format(programme.end)}, ${channel.name}, ${action}`);
           button.setAttribute('aria-pressed', String(scheduled));
-          button.title = `${programme.title}${programme.subtitle ? '\n' + programme.subtitle : ''}\n${when(programme.start)}–${time.format(programme.end)} · ${action}`;
+          button.title = `${programme.title}${programme.subtitle ? '\n' + programme.subtitle : ''}\n${when(programme.start)}–${time.format(programme.end)} · ${action}${row?.id === '1054' ? '\n' + row.scheduleNote : ''}`;
           button.append(node('strong', 'guide-programme-title', programme.title), node('span', 'guide-programme-time', range(programme)), node('span', 'guide-programme-action', action));
           button.addEventListener('click', () => { void choose({ ...programme, channelId: channel.id }); });
           track.append(button);
@@ -208,13 +210,13 @@
 
     function render() {
       updateNowLabels(); renderScheduled();
-      $('guide-message').textContent = !data ? 'Loading listings…' : data.status === 'unavailable' ? 'Listings couldn’t be loaded. You can still tune using a channel name.' : `${data.status === 'stale' ? 'Using cached listings. ' : ''}Listings available through ${when(data.until)}. Click an airing show to watch, or an upcoming show to schedule.`;
+      $('guide-message').textContent = !data ? 'Loading listings…' : data.status === 'unavailable' ? 'Listings couldn’t be loaded. You can still tune using a channel name.' : `${data.partial ? 'Some channel listings are unavailable. ' : ''}${data.status === 'stale' ? 'Using cached listings. ' : ''}Listings available through ${when(data.until)}. Click an airing show to watch, or an upcoming show to schedule.`;
       if (dialog.open) renderGrid();
     }
 
     async function refresh(force = false) {
       if (loading || disposed) return loading;
-      const cacheTime = !data || data.status !== 'ready' ? MINUTE : REFRESH;
+      const cacheTime = !data || data.status !== 'ready' || data.partial ? MINUTE : REFRESH;
       if (!force && fetchedAt && Date.now() - fetchedAt < cacheTime) return;
       $('guide-refresh').disabled = true;
       loading = (async () => {
@@ -272,7 +274,7 @@
     window.addEventListener('pageshow', wake);
     window.addEventListener('storage', event => { if (event.key === model.STORAGE_KEY || event.key === null) void transact(() => ({ ok: true })); });
     refreshTimer = setInterval(() => { void refresh(); }, REFRESH);
-    clockTimer = setInterval(() => { updateNowLabels(); if (dialog.open) renderGrid(); if (data?.status !== 'ready' && !document.hidden) void refresh(); }, 30_000);
+    clockTimer = setInterval(() => { updateNowLabels(); if (dialog.open) renderGrid(); if ((data?.status !== 'ready' || data?.partial) && !document.hidden) void refresh(); }, 30_000);
     render(); void refresh(); void transact(() => scheduler.tick()); armSchedule();
     return { open, close, isOpen: () => dialog.open, toggle: () => dialog.open ? close() : void open(), destroy() {
       disposed = true; controller.abort(); clearTimeout(scheduleTimer); clearTimeout(toastTimer); clearInterval(refreshTimer); clearInterval(clockTimer);

@@ -31,7 +31,7 @@ function world(initial = []) {
   } };
   const settle = async () => { await new Promise(setImmediate); await tail; await new Promise(setImmediate); };
 
-  async function player({ supported = true, response = listings() } = {}) {
+  async function player({ supported = true, response = listings(), channels = [{ id: '339', name: 'Cartoon Network' }, { id: '310', name: 'Comedy Central' }] } = {}) {
     const nodes = new Map(), windowListeners = {}, documentListeners = {}, tuned = [], fetches = [];
     const descendants = root => root.children.flatMap(child => [child, ...descendants(child)]);
     const matches = (element, selector) => selector === '[data-programme-key]' ? element.dataset.programmeKey !== undefined : selector === '[data-guide-channel]' ? element.dataset.guideChannel !== undefined : selector.startsWith('.') && element.className.split(/\s+/).includes(selector.slice(1));
@@ -77,7 +77,7 @@ function world(initial = []) {
     context.window = context;
     vm.runInContext(modelSource, context, { filename: 'public/guide-model.js' });
     vm.runInContext(uiSource, context, { filename: 'public/guide-ui.js' });
-    const controller = context.CharliflixGuide.create({ channels: [{ id: '339', name: 'Cartoon Network' }, { id: '310', name: 'Comedy Central' }], channelName: channel => channel.name, onTune: channelId => tuned.push({ channelId, locked: activeLocks > 0, remaining: queue() }) });
+    const controller = context.CharliflixGuide.create({ channels, channelName: channel => channel.name, onTune: channelId => tuned.push({ channelId, locked: activeLocks > 0, remaining: queue() }) });
     await settle();
     return {
       get, document, controller, tuned, fetches,
@@ -135,6 +135,27 @@ test('guide scheduling requires explicit conflict replacement and a persisted de
   assert.equal(p.tuned.length, 1);
   assert.ok(w.writes.every(write => write.locked));
   assert.ok(w.lockCalls.every(name => name === STORAGE_KEY));
+  p.controller.destroy();
+});
+
+test('archive guide labels use their own rotation note while airing and future blocks retain ordinary tuning and scheduling', async () => {
+  const w = world();
+  const note = 'Charliflix uses its own rotation; timing differs from Spelunkr.';
+  const response = { status: 'ready', partial: true, from: base - minute, until: base + 60 * minute,
+    channels: [{ id: '1054', status: 'ready', scheduleNote: note, programmes: [programme('1054', base - 15 * minute), programme('1054')] }] };
+  const p = await w.player({ response, channels: [{ id: '1054', name: 'Adult Swim Archive' }] });
+  await p.open();
+  assert.match(p.get('channel-now-1054').title, /own rotation/);
+  assert.doesNotMatch(p.get('channel-now-1054').title, /Eastern/);
+  assert.equal(p.get('guide-grid').querySelectorAll('.guide-channel-note')[0].textContent, 'Archive rotation');
+  assert.match(p.get('guide-message').textContent, /Some channel listings are unavailable/);
+  const future = await p.clickProgramme('1054', programme('1054').start);
+  assert.match(future.title, /timing differs/);
+  assert.equal(w.queue()[0].channelId, '1054');
+  await p.clickProgramme('1054', base - 15 * minute);
+  assert.equal(p.tuned[0].channelId, '1054');
+  await w.advance(minute);
+  assert.equal(p.fetches.length, 2, 'a partial success still retries the failed guide source after one minute');
   p.controller.destroy();
 });
 

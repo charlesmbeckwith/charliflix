@@ -116,17 +116,29 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  android:
+    uses: ./.github/workflows/android.yml
+    secrets: inherit
+
   publish:
-    needs: build
+    needs: [build, android]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
     steps:
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
+          name: Windows-x64
           path: release
-          merge-multiple: true
-      - name: Verify and publish both platform builds
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: Apple-Silicon
+          path: release
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: Android-arm64
+          path: release
+      - name: Verify and publish all platform builds
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -136,10 +148,11 @@ jobs:
           cd release
           test -f "Charliflix-$RELEASE_TAG-Windows-x64.zip"
           test -f "Charliflix-$RELEASE_TAG-Apple-Silicon.zip"
+          test -f "Charliflix-$RELEASE_TAG-Android-arm64.apk"
           test -f Charliflix-Setup.exe
           test -f releases.win.json
           test -f RELEASES
           test -f "Charliflix-${RELEASE_TAG#v}-full.nupkg"
           cat ./*.sha256 > SHA256SUMS
           sha256sum --check SHA256SUMS
-          gh release create "$RELEASE_TAG" ./*.zip ./*.nupkg ./*.exe ./*.json RELEASES SHA256SUMS --verify-tag --title "Charliflix $RELEASE_TAG" --notes "For Windows 10/11, install Charliflix-Setup.exe once to enable background update downloads and restart-to-update. A manual Windows-x64 ZIP is also available. For M1 and newer Macs running macOS 13+, use the Apple-Silicon ZIP. Windows builds are unsigned; Mac builds are ad-hoc signed and are not Apple-notarized. See the included Read Me for requirements. Third-party feed availability is independent of app updates."
+          gh release create "$RELEASE_TAG" ./*.zip ./*.nupkg ./*.exe ./*.apk ./*.json RELEASES SHA256SUMS --verify-tag --title "Charliflix $RELEASE_TAG" --notes "Windows: install Charliflix-Setup.exe for managed updates. Apple Silicon: use the ZIP. Android 8+ ARM64: install the Android-arm64 APK (initial Android beta, including Retroid Nova controls); subsequent APKs install over the existing app. Android and Mac replacement is manual. Windows builds are unsigned and Mac builds are ad-hoc signed and unnotarized. Adult Swim Archive uses Charliflix's own rotation of Spelunkr 54 recordings, with timing different from Spelunkr. Third-party feeds and archives can become unavailable."

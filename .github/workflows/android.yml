@@ -1,0 +1,97 @@
+name: Android
+
+on:
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  apk:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      CHARLIFLIX_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.CHARLIFLIX_ANDROID_KEYSTORE_PASSWORD }}
+      CHARLIFLIX_ANDROID_KEY_PASSWORD: ${{ secrets.CHARLIFLIX_ANDROID_KEY_PASSWORD }}
+      CHARLIFLIX_ANDROID_KEY_ALIAS: ${{ secrets.CHARLIFLIX_ANDROID_KEY_ALIAS }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: python3 -m unittest discover -s android -p 'test_*.py' -v
+      - name: Configure Android toolchain and retained signer
+        env:
+          KEYSTORE_BASE64: ${{ secrets.CHARLIFLIX_ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          set -euo pipefail
+          echo "JAVA_HOME=$JAVA_HOME_17_X64" >> "$GITHUB_ENV"
+          echo "CHARLIFLIX_ANDROID_KEYSTORE=$RUNNER_TEMP/charliflix-release.p12" >> "$GITHUB_ENV"
+          test -n "$KEYSTORE_BASE64"
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/charliflix-release.p12"
+          chmod 600 "$RUNNER_TEMP/charliflix-release.p12"
+          sdkmanager 'platforms;android-35' 'build-tools;35.0.0' 'ndk;28.0.13004108' 'cmake;3.22.1' 'emulator' 'system-images;android-33;google_apis;x86_64'
+      - name: Build, lint and audit signed ARM64 APK
+        run: |
+          set -euo pipefail
+          python3 android/build.py --fetch
+          python3 android/audit.py
+      - name: Build x86-64 test edition
+        run: python3 android/build.py --debug --abi x86_64
+      - name: Boot disposable Android 13 emulator and verify embedded runtime
+        run: |
+          set -euo pipefail
+          test -e /dev/kvm
+          sudo chmod a+rw /dev/kvm
+          printf 'no\n' | avdmanager create avd --force --name charliflix-smoke --package 'system-images;android-33;google_apis;x86_64' --device pixel_2
+          "$ANDROID_HOME/emulator/emulator" -avd charliflix-smoke -no-window -no-audio -no-snapshot -no-boot-anim -gpu swiftshader_indirect > "$RUNNER_TEMP/emulator.log" 2>&1 &
+          timeout 120 adb wait-for-device
+          for attempt in $(seq 1 120); do
+            if [ "$(adb shell getprop sys.boot_completed | tr -d '\r')" = '1' ]; then break; fi
+            sleep 2
+          done
+          test "$(adb shell getprop sys.boot_completed | tr -d '\r')" = '1'
+          adb shell wm size 1080x810
+          adb shell wm density 240
+          android/.cache/gradle-8.11.1/bin/gradle -p android --no-daemon -PcharliflixAbi=x86_64 connectedDebugAndroidTest
+          python3 android/audit.py --smoke-passed
+          mkdir -p android-smoke
+          adb pull /sdcard/Android/data/com.charliflix.player.debug/files/charliflix-android-smoke.png android-smoke/
+          adb pull /sdcard/Android/data/com.charliflix.player.debug/files/charliflix-android-smoke.json android-smoke/
+          adb emu kill
+      - name: Stage Android release assets
+        run: |
+          set -euo pipefail
+          mkdir release
+          cp dist/Charliflix-v*-Android-arm64.apk dist/Charliflix-v*-Android-arm64.verification.json dist/Charliflix-v*-Android-arm64.apk.sha256 release/
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: Android-arm64
+          path: release/*
+          if-no-files-found: error
+          retention-days: 7
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: Android-smoke
+          path: android-smoke/*
+          if-no-files-found: error
+          retention-days: 7
+      - name: Upload Android diagnostics
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: Android-diagnostics
+          path: |
+            android/app/build/reports/
+            android/app/build/outputs/androidTest-results/
+            ${{ runner.temp }}/emulator.log
+          retention-days: 3
+      - name: Remove temporary CI signer
+        if: always()
+        run: rm -f "$RUNNER_TEMP/charliflix-release.p12"

@@ -4,7 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const http = require('node:http');
 const { once } = require('node:events');
-const { startOwnedServer, isAppDocumentUrl, isAppResourceUrl, isExternalPageUrl, allowsPermission } = require('../mac/runtime.cjs');
+const { startOwnedServer, isAppDocumentUrl, isAppResourceUrl, isArchiveMediaUrl, allowsRequest, isExternalPageUrl, allowsPermission } = require('../mac/runtime.cjs');
 const { isReleasePageUrl } = require('../lib/updates.cjs');
 
 function makeServer() {
@@ -94,4 +94,46 @@ test('Mac app allows ordinary fullscreen only for its own main document', () => 
   for (const permission of ['automatic-fullscreen', 'media', 'display-capture', 'notifications', 'clipboard-read', 'geolocation', 'midi', 'usb', 'serial', 'fileSystem']) {
     assert.equal(allowsPermission(permission, `${origin}/`, origin, true), false, permission);
   }
+});
+
+test('Mac permits direct archive MP4s and their HTTPS storage redirects only as media requests', () => {
+  const origin = 'http://127.0.0.1:8767';
+  const valid = [
+    'https://archive.org/download/example-recording/episode.mp4',
+    'https://archive.org:443/download/example-recording/episode.MP4',
+    'https://ia800000.us.archive.org/12/items/example-recording/episode.mp4',
+    'https://ia800000.us.archive.org/12/items/example-recording/episode.mp4?download=1',
+  ];
+  for (const url of valid) {
+    assert.equal(isArchiveMediaUrl(url), true, url);
+    assert.equal(allowsRequest('media', url, origin), true, url);
+    assert.equal(isAppResourceUrl(url, origin), false, 'remote media never becomes a general app resource');
+    for (const type of ['mainFrame', 'subFrame', 'script', 'xhr', 'fetch', 'image', 'stylesheet', 'font', 'webSocket', 'other']) {
+      assert.equal(allowsRequest(type, url, origin), false, `${type}: ${url}`);
+    }
+  }
+  for (const url of [
+    'http://archive.org/download/example/episode.mp4',
+    'https://archive.org:444/download/example/episode.mp4',
+    'https://user:password@archive.org/download/example/episode.mp4',
+    'https://archive.org/download/example/episode.mp4#fragment',
+    'https://archive.org/services/example.mp4',
+    'https://archive.org/download/example/script.js',
+    'https://archive.org/download/example/playlist.m3u8',
+    'https://archive.org.evil.example/download/example/episode.mp4',
+    'https://us.archive.org/12/items/example/episode.mp4',
+    'https://archive.org.example.us.archive.org.evil.example/episode.mp4',
+    'https://ia800000.archive.org/12/items/example/episode.mp4',
+    'https://ia800000.us.archive.org:444/12/items/example/episode.mp4',
+    'https://ia800000.us.archive.org/12/items/example/episode.mp4#fragment',
+    'file:///archive.org/download/episode.mp4', 'javascript:alert(1)', 'not a url', null,
+  ]) {
+    assert.equal(isArchiveMediaUrl(url), false, String(url));
+    assert.equal(allowsRequest('media', url, origin), false, String(url));
+  }
+  assert.equal(allowsRequest('xhr', `${origin}/api/channels`, origin), true);
+  assert.equal(allowsRequest('script', `${origin}/app.js`, origin), true);
+  assert.equal(allowsRequest('worker', `blob:${origin}/worker-id`, origin), true);
+  assert.equal(allowsRequest('subFrame', `${origin}/`, origin), false);
+  assert.equal(allowsRequest('mainFrame', `${origin}/`, origin), true);
 });

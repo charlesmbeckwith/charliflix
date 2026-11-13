@@ -28,6 +28,7 @@ async function player(channels = [channel()], stored = {}, options = {}) {
   const timers = new Map();
   const storage = new Map(Object.entries(stored));
   const documentListeners = {};
+  const requests = [];
   let timerId = 0;
   let clock = 100000;
 
@@ -41,6 +42,7 @@ async function player(channels = [channel()], stored = {}, options = {}) {
       this.hidden = id === 'error-overlay' || id === 'loading-overlay';
       this.paused = true;
       this.currentTime = 0;
+      this.duration = NaN;
       this.className = '';
       const classes = new Set();
       this.classList = {
@@ -53,7 +55,7 @@ async function player(channels = [channel()], stored = {}, options = {}) {
     addEventListener(event, callback) { (this.listeners[event] ??= []).push(callback); }
     emit(event, data = {}) { for (const callback of this.listeners[event] || []) callback({ target: this, ...data }); }
     setAttribute(name, value) { this.attributes[name] = value; }
-    removeAttribute(name) { delete this.attributes[name]; }
+    removeAttribute(name) { delete this.attributes[name]; if (name === 'src') this.src = ''; }
     replaceChildren(...children) { this.children = children; }
     append(...children) { this.children.push(...children); }
     querySelector() { return this.inner ??= new Element(); }
@@ -106,10 +108,13 @@ async function player(channels = [channel()], stored = {}, options = {}) {
   }
 
   const context = {
-    document, Hls, console,
+    document, Hls, console, URL, AbortController,
     window: { Hls, scrollY: 0, scrollTo() {}, addEventListener() {}, ...(options.guide ? { CharliflixGuide: { create(value) { guideOptions = value; return guide; } }, CharliflixGuideModel: {} } : {}) },
     localStorage: { getItem: key => storage.get(key) ?? null, setItem: (key, value) => storage.set(key, value) },
-    fetch: async () => ({ ok: true, json: async () => ({ channels }) }),
+    fetch: async (url, init = {}) => {
+      requests.push({ url, ...init });
+      return options.fetchImpl?.(url, init) || { ok: true, json: async () => ({ channels }) };
+    },
     setTimeout: (callback, delay) => { const id = ++timerId; timers.set(id, { callback, deadline: clock + delay }); return id; },
     clearTimeout: id => timers.delete(id),
     Date: { now: () => clock },
@@ -133,7 +138,10 @@ async function player(channels = [channel()], stored = {}, options = {}) {
   }
 
   return {
-    get, body, document, storage, timers, elapse, guide,
+    get, body, document, storage, timers, elapse, guide, requests,
+    flush: () => new Promise(setImmediate),
+    back: () => context.window.charliflixBack(),
+    suspend: () => context.window.charliflixSuspend(),
     get current() { return Hls.instances.at(-1); },
     get attempts() { return Hls.instances; },
     click: id => get(id).emit('click'),
@@ -434,4 +442,185 @@ test('guide tuning uses configured channels while preserving audio, preferred fe
   assert.equal(p.body.classList.contains('theater-mode'), true);
   p.guideTune('not-configured');
   assert.equal(p.attempts.length, 1, 'unrecognized guide channels cannot start an arbitrary source');
+});
+
+function archiveChannel() {
+  return channel('1054', { name: 'Adult Swim Archive', playbackType: 'file', defaultFeed: 'spelunkr', feeds: [{ id: 'spelunkr', label: 'Spelunkr 54' }] });
+}
+function archiveDescriptor(extras = {}) {
+  return { type: 'file', url: 'https://archive.org/download/example-recording/block.mp4',
+    startTime: 45, trimStart: 20, trimEnd: 145, serverTime: 100000, endsAt: 200000,
+    programTitle: 'Example Adult Swim Block', ...extras };
+}
+const jsonResponse = data => ({ ok: true, json: async () => data });
+
+test('archive playback uses the bounded descriptor and seeks to its rotation position after metadata arrives', async () => {
+  const descriptor = archiveDescriptor();
+  const p = await player([archiveChannel()], {}, { fetchImpl: url => url.endsWith('/playback') ? jsonResponse(descriptor) : undefined });
+  p.click('start-watching');
+  await p.flush();
+  assert.equal(p.attempts.length, 0, 'archive files never go through the HLS resolver');
+  assert.equal(p.requests.at(-1).url, '/api/channels/1054/playback');
+  assert.equal(p.get('video').src, descriptor.url);
+  assert.equal(p.get('video').preload, 'metadata');
+  assert.equal(p.get('video').playCalls || 0, 0, 'the player waits until it can seek');
+  p.elapse(2000);
+  p.get('video').duration = 200;
+  p.get('video').emit('loadedmetadata');
+  assert.equal(p.get('video').currentTime, 47, 'metadata delay advances the offset instead of replaying old content');
+  assert.equal(p.get('video').playCalls, 1);
+  p.playing();
+  assert.equal(p.get('state-text').textContent, 'Archive');
+  assert.match(p.get('playback-note').textContent, /Example Adult Swim Block.*Charliflix rotation/);
+  assert.match(p.get('go-live').title, /archive rotation/);
+});
+
+test('changing channels aborts an old archive request and ignores a late response', async () => {
+  let complete;
+  const response = new Promise(resolve => { complete = resolve; });
+  const p = await player([archiveChannel(), channel()], {}, { fetchImpl: url => url.endsWith('/playback') ? response : undefined });
+  p.selectChannel('1054');
+  const request = p.requests.at(-1);
+  assert.equal(request.signal.aborted, false);
+  p.selectChannel('339');
+  assert.equal(request.signal.aborted, true);
+  const live = p.current;
+  assert.equal(live.url, '/api/channels/339/feeds/stream/playlist.m3u8');
+  complete(jsonResponse(archiveDescriptor()));
+  await p.flush();
+  assert.equal(p.get('video').src, '', 'a stale descriptor cannot assign its media URL after a tune');
+  assert.equal(p.current, live);
+  assert.equal(p.get('now-title').textContent, 'Cartoon Network');
+  assert.equal(p.get('error-overlay').hidden, true);
+});
+
+test('archive playback advances at the wall-clock deadline even with remaining video and refreshes at trimEnd', async () => {
+  for (const trigger of ['deadline', 'trim']) {
+    let calls = 0;
+    const p = await player([archiveChannel()], {}, { fetchImpl: url => {
+      if (!url.endsWith('/playback')) return undefined;
+      return jsonResponse(archiveDescriptor({ serverTime: calls ? 102000 : 100000, endsAt: calls++ ? 202000 : 102000 }));
+    } });
+    p.click('start-watching'); await p.flush();
+    p.get('video').emit('loadedmetadata'); p.playing();
+    if (trigger === 'deadline') {
+      p.elapse(1999);
+      assert.equal(calls, 1);
+      p.elapse(1);
+    } else {
+      p.get('video').currentTime = 144.9;
+      p.get('video').emit('timeupdate');
+      assert.equal(calls, 1);
+      p.get('video').currentTime = 145;
+      p.get('video').emit('timeupdate');
+    }
+    await p.flush();
+    assert.equal(calls, 2, `${trigger} gets a fresh current programme instead of playing beyond the trim`);
+    assert.equal(p.get('video').paused, true, 'the next programme seeks before playing');
+    assert.equal(p.get('error-overlay').hidden, true);
+    assert.equal(p.attempts.length, 0);
+  }
+});
+
+test('pausing beyond an archive deadline waits for play then fetches the current rotation', async () => {
+  let calls = 0;
+  const p = await player([archiveChannel()], {}, { fetchImpl: url => {
+    if (!url.endsWith('/playback')) return undefined;
+    return jsonResponse(archiveDescriptor(calls++ ? { serverTime: 150000, endsAt: 250000, startTime: 90 } : { endsAt: 102000 }));
+  } });
+  p.click('start-watching'); await p.flush();
+  p.get('video').emit('loadedmetadata'); p.playing();
+  p.click('play-toggle');
+  p.elapse(50000); await p.flush();
+  assert.equal(calls, 1, 'paused playback never retunes in the background');
+  assert.equal(p.get('state-text').textContent, 'Paused');
+  p.click('play-toggle'); await p.flush();
+  assert.equal(calls, 2, 'resume does not replay an expired programme');
+  p.get('video').emit('loadedmetadata');
+  assert.equal(p.get('video').currentTime, 90);
+  assert.equal(p.get('video').playCalls, 2);
+});
+
+test('invalid archive descriptors fail without assigning an arbitrary media source or starting HLS', async () => {
+  for (const extras of [
+    { url: 'https://elsewhere.example/download/block.mp4' },
+    { url: 'http://archive.org/download/block.mp4' },
+    { url: 'https://user:pass@archive.org/download/block.mp4' },
+    { url: 'https://archive.org:8443/download/block.mp4' },
+    { url: 'https://archive.org/download/block.mp4?token=unknown' },
+    { url: 'https://archive.org/download/block.mp4#fragment' },
+    { url: 'https://archive.org/arbitrary/block.mp4' },
+    { url: 'https://archive.org/download/playlist.m3u8' },
+    { type: 'other' }, { startTime: 19 }, { startTime: 145 }, { trimStart: -1 },
+    { trimEnd: 172801 }, { serverTime: null }, { endsAt: 100000 },
+  ]) {
+    const p = await player([archiveChannel()], {}, { fetchImpl: url => url.endsWith('/playback') ? jsonResponse(archiveDescriptor(extras)) : undefined });
+    p.click('start-watching'); await p.flush();
+    assert.equal(p.get('video').src, '', JSON.stringify(extras));
+    assert.equal(p.get('error-overlay').hidden, false);
+    assert.match(p.get('error-detail').textContent, /archive recording could not be loaded/);
+    assert.equal(p.attempts.length, 0);
+    assert.equal(p.timers.size, 0, 'an invalid descriptor cannot start an unbounded retry loop');
+  }
+});
+
+test('archive metadata rejects recordings shorter than the rotation position', async () => {
+  const p = await player([archiveChannel()], {}, { fetchImpl: url => url.endsWith('/playback') ? jsonResponse(archiveDescriptor()) : undefined });
+  p.click('start-watching'); await p.flush();
+  p.get('video').duration = 40;
+  p.get('video').emit('loadedmetadata');
+  assert.equal(p.get('error-overlay').hidden, false);
+  assert.match(p.get('error-detail').textContent, /shorter than its published schedule/);
+  assert.equal(p.get('video').playCalls || 0, 0);
+});
+
+test('native Android Back closes the guide then theater before returning control to the shell', async () => {
+  const p = await player([channel()], {}, { guide: true });
+  assert.equal(p.back(), false);
+  p.click('theater'); p.key('g');
+  assert.equal(p.back(), true);
+  assert.equal(p.guide.closes, 1);
+  assert.equal(p.body.classList.contains('theater-mode'), true);
+  assert.equal(p.back(), true);
+  assert.equal(p.body.classList.contains('theater-mode'), false);
+  assert.equal(p.back(), false);
+});
+
+test('native suspension prevents a pending HLS manifest from autoplaying until explicit Play resumes loading', async () => {
+  const p = await player();
+  p.click('start-watching');
+  const live = p.current;
+  p.suspend();
+  assert.equal(live.stopped, true);
+  assert.equal(p.get('video').paused, true);
+  live.emit('manifest');
+  await p.flush();
+  assert.equal(p.get('video').playCalls || 0, 0, 'a late manifest cannot restart sound or playback in the background');
+  assert.equal(live.restarts || 0, 0);
+  assert.equal(p.timers.size, 0, 'suspension cancels the playback deadline');
+  p.click('play-toggle');
+  assert.equal(p.get('video').playCalls, 1);
+  assert.equal(live.restarts, 1, 'explicit Play restarts the stopped HLS loader');
+  assert.equal(p.get('video').paused, false);
+});
+
+test('native suspension prevents a late archive descriptor and metadata from autoplaying until explicit Play', async () => {
+  let complete;
+  const response = new Promise(resolve => { complete = resolve; });
+  const p = await player([archiveChannel()], {}, { fetchImpl: url => url.endsWith('/playback') ? response : undefined });
+  p.click('start-watching');
+  p.suspend();
+  complete(jsonResponse(archiveDescriptor()));
+  await p.flush();
+  p.get('video').duration = 200;
+  p.get('video').emit('loadedmetadata');
+  await p.flush();
+  assert.equal(p.get('video').currentTime, 45, 'the descriptor can prepare the correct offset');
+  assert.equal(p.get('video').playCalls || 0, 0, 'the metadata callback cannot override native suspension');
+  assert.equal(p.get('video').paused, true);
+  assert.equal(p.timers.size, 0);
+  p.click('play-toggle');
+  assert.equal(p.get('video').playCalls, 1);
+  assert.equal(p.get('video').paused, false);
+  assert.equal(p.attempts.length, 0);
 });

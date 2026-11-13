@@ -55,7 +55,7 @@
       if (!response.ok) throw new Error('Update check failed.');
       const result = await response.json();
       if (result.status === 'available' && isReleaseUrl(result.releaseUrl)) {
-        $('update-message').textContent = `Version ${result.latestVersion} is available. Download it from the release page, then replace your app.`;
+        $('update-message').textContent = /CharliflixAndroid\//.test(window.navigator?.userAgent||'') ? `Version ${result.latestVersion} is available. Download the Android APK and install it over Charliflix to keep your settings.` : `Version ${result.latestVersion} is available. Download it from the release page, then replace your app.`;
         $('open-release').href = result.releaseUrl;
         $('open-release').hidden = false;
       } else if (result.status === 'current') {
@@ -71,9 +71,39 @@
   fetch('/api/version').then(response => { if (!response.ok) throw new Error('Version unavailable.'); return response.json(); }).then(data => {
     if (typeof data.version === 'string' && /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/.test(data.version)) $('app-version').textContent = `v${data.version}`;
   }).catch(() => {});
-  const initials = { '339':'CN', '310':'CC', '317':'FX', '298':'FXX', '303':'AMC', '51':'abc', '52':'CBS', '53':'NBC', '54':'FOX', '210':'PBS', '300':'CW' };
+  const initials = { '339':'CN', '310':'CC', '317':'FX', '298':'FXX', '303':'AMC', '51':'abc', '52':'CBS', '53':'NBC', '54':'FOX', '210':'PBS', '300':'CW', '1054':'[as]' };
   const names = { '339':'Cartoon Network', '310':'Comedy Central', '317':'FX', '298':'FXX', '303':'AMC', '51':'ABC', '52':'CBS', '53':'NBC', '54':'FOX', '210':'PBS', '300':'CW' };
   const state = { channels:[], selected:null, hls:null, started:false, retries:0, mediaRecoveries:0, generation:0, retryTimer:null, stallTimer:null, muted:false, volume:0.75, feed:null, attemptedFeeds:new Set(), feedChoices:Object.create(null), fallbackFrom:'', startupDelay:35000, receivedPlayback:false, lastTime:0, lastProgressAt:0 };
+  let archivePlayback=null, archiveController=null, archiveTimer=null;
+  let nativeSuspended=false;
+  window.charliflixSuspend=()=>{nativeSuspended=true;clearTimeout(state.stallTimer);clearTimeout(archiveTimer);state.hls?.stopLoad();video.pause();};
+  function clearArchive() { clearTimeout(archiveTimer);archiveTimer=null;archiveController?.abort();archiveController=null;archivePlayback=null; }
+  function archiveExpired() { return archivePlayback && Date.now()-archivePlayback.receivedAt >= archivePlayback.endsAt-archivePlayback.serverTime; }
+  function continueArchive() { if(state.selected?.playbackType==='file')start(state.selected,{feed:state.feed}); }
+  function armArchive() {
+    clearTimeout(archiveTimer);
+    if(!archivePlayback||video.paused)return;
+    const generation=state.generation;
+    archiveTimer=setTimeout(()=>{if(generation===state.generation&&!video.paused)continueArchive();},Math.max(1,archivePlayback.endsAt-archivePlayback.serverTime-(Date.now()-archivePlayback.receivedAt)));
+  }
+  async function startArchive(base,generation) {
+    const controller=new AbortController();archiveController=controller;
+    try {
+      const response=await fetch(`${base}/playback`,{signal:controller.signal});
+      if(!response.ok)throw new Error('The archive channel is unavailable.');
+      const data=await response.json();
+      if(generation!==state.generation)return;
+      const url=new URL(data.url);
+      if(data.type!=='file'||url.protocol!=='https:'||url.hostname!=='archive.org'||url.username||url.password||url.port||url.search||url.hash||!url.pathname.startsWith('/download/')||!url.pathname.toLowerCase().endsWith('.mp4')||
+        ![data.startTime,data.trimStart,data.trimEnd,data.serverTime,data.endsAt].every(Number.isFinite)||data.startTime<data.trimStart||data.trimStart<0||data.startTime>=data.trimEnd||data.trimEnd>172800||data.endsAt<=data.serverTime||data.endsAt-data.serverTime>172800000)throw new Error('Unsupported archive playback.');
+      archivePlayback={...data,receivedAt:Date.now()};
+      $('loading-text').textContent=`Loading ${data.programTitle||'Adult Swim archive'}…`;
+      $('go-live').title='Return to the current position in the archive rotation';
+      video.preload='metadata';video.src=url.href;video.load();
+    } catch(error) {
+      if(generation===state.generation&&error.name!=='AbortError')fail('The archive recording could not be loaded. Try again in a moment.');
+    } finally { if(archiveController===controller)archiveController=null; }
+  }
   try { state.muted = localStorage.getItem('channel-room:muted') === 'true'; const stored = localStorage.getItem('channel-room:volume'); if(stored !== null && Number.isFinite(Number(stored))) state.volume = Math.min(1,Math.max(0,Number(stored))); } catch {}
   try { const choices=JSON.parse(localStorage.getItem('channel-room:feeds')||'{}'); for(const [id,feed] of Object.entries(choices||{})) if(typeof feed==='string')state.feedChoices[id]=feed; } catch {}
   video.muted = state.muted;
@@ -145,6 +175,7 @@
     if(!state.selected)return;
     const feed=playableFeeds(state.selected).find(option=>String(option.id)===String(feedId));
     if(!feed)return;
+    nativeSuspended=false;
     state.feedChoices[state.selected.id]=String(feed.id);
     try{localStorage.setItem('channel-room:feeds',JSON.stringify(state.feedChoices));}catch{}
     start(state.selected,{feed});
@@ -170,7 +201,7 @@
     $('now-title').textContent=name;
     $('small-channel').textContent=initials[channel.id]||name.slice(0,2);
     $('channel-description').replaceChildren(document.createTextNode(name+' '));
-    const region=document.createElement('span');region.className='muted-text';region.textContent='· USA feed';$('channel-description').append(region);
+    const region=document.createElement('span');region.className='muted-text';region.textContent=channel.playbackType==='file'?'· Archive rotation':'· USA feed';$('channel-description').append(region);
     $('welcome-detail').textContent=`${name} is one click away.`;
     $('start-watching').querySelector('span').textContent=`Watch ${name}`;
     for(const card of document.querySelectorAll('.channel-card')) card.setAttribute('aria-pressed',String(card.dataset.id===channel.id));
@@ -179,17 +210,19 @@
   }
   function fail(message) {
     clearTimeout(state.retryTimer);clearTimeout(state.stallTimer);
+    clearTimeout(archiveTimer);archiveController?.abort();
     $('loading-overlay').hidden=true;
     $('idle-slate').hidden=true;
     $('error-overlay').hidden=false;
     $('error-detail').textContent=message||'The feed is unavailable right now. Try this channel again in a moment.';
     status('error','Unavailable',state.selected?`${feedLabel()} unavailable · Try another feed or channel`:'Try again in a moment');
   }
-  async function tryPlay() { const generation=state.generation;if(document.body.dataset.playback==='paused'){state.lastProgressAt=Date.now();armStallTimer(35000);}try { await video.play(); } catch(error) { if(generation!==state.generation)return;if(error.name==='NotAllowedError'){clearTimeout(state.stallTimer);$('loading-overlay').hidden=true;status('paused','Press play','Press play to start with sound');}else if(error.name!=='AbortError'){advanceFeed('The player could not start this feed.');} } }
+  async function tryPlay(userInitiated=false) { if(nativeSuspended&&!userInitiated)return;if(archiveExpired()){nativeSuspended=false;continueArchive();return;}if(nativeSuspended){nativeSuspended=false;state.hls?.startLoad();}const generation=state.generation;if(document.body.dataset.playback==='paused'){state.lastProgressAt=Date.now();armStallTimer(35000);}try { await video.play(); } catch(error) { if(generation!==state.generation)return;if(error.name==='NotAllowedError'){clearTimeout(state.stallTimer);$('loading-overlay').hidden=true;status('paused','Press play','Press play to start with sound');}else if(error.name!=='AbortError'){advanceFeed('The player could not start this feed.');} } }
   function showQuality(){ const level=state.hls?.currentLevel; const info=level>=0?state.hls.levels[level]:null; const height=video.videoHeight||info?.height; $('quality-label').textContent=height?`${height}p`:'—'; }
   function start(channel, options={}) {
     clearTimeout(state.retryTimer);clearTimeout(state.stallTimer);
     const generation=++state.generation;
+    clearArchive();
     const muted=state.muted,volume=state.volume;
     state.hls?.destroy();state.hls=null;
     video.pause();video.removeAttribute('src');video.load();
@@ -208,6 +241,8 @@
     status('loading','Connecting',feedProgress(options.automatic?'Trying':'Connecting to'));
     armStallTimer(state.startupDelay);
     const base=`/api/channels/${encodeURIComponent(channel.id)}`;
+    $('go-live').title=channel.playbackType==='file'?'Return to the archive rotation':'Return to live';
+    if(channel.playbackType==='file'){void startArchive(base,generation);return;}
     const source=state.feed.legacy?`${base}/playlist.m3u8`:`${base}/feeds/${encodeURIComponent(state.feed.id)}/playlist.m3u8`;
     if(window.Hls?.isSupported()) {
       const hls=new Hls({enableWorker:true,lowLatencyMode:false,liveSyncDurationCount:2,liveMaxLatencyDurationCount:5,maxBufferLength:24,backBufferLength:20,capLevelToPlayerSize:true});
@@ -233,22 +268,23 @@
       const favorite=channel.pinned===true||channel.category==='favorites';if(favorite)favoriteCount++;else networkCount++;
       const button=document.createElement('button');button.type='button';button.className='channel-card';button.dataset.id=channel.id;button.setAttribute('aria-pressed','false');button.setAttribute('aria-label',`Watch ${names[channel.id]||channel.name}`);
       const badge=document.createElement('span');badge.className='channel-badge';badge.textContent=initials[channel.id]||channel.name.slice(0,2);
-      const label=document.createElement('span');label.className='channel-copy';const title=document.createElement('span');title.className='channel-name';title.textContent=names[channel.id]||channel.name;const detail=document.createElement('span');detail.className='channel-meta';const feedCount=playableFeeds(channel).length;detail.textContent=feedCount>1?`USA · ${feedCount} feeds`:'USA feed';const now=document.createElement('span');now.className='channel-now';now.id=`channel-now-${channel.id}`;now.textContent='Loading guide…';button.setAttribute('aria-describedby',now.id);label.append(title,now,detail);
-      const dot=document.createElement('span');dot.className='selection-indicator';dot.setAttribute('aria-hidden','true');button.append(badge,label,dot);button.addEventListener('click',()=>start(channel));
+      const label=document.createElement('span');label.className='channel-copy';const title=document.createElement('span');title.className='channel-name';title.textContent=names[channel.id]||channel.name;const detail=document.createElement('span');detail.className='channel-meta';const feedCount=playableFeeds(channel).length;detail.textContent=channel.playbackType==='file'?'Spelunkr 54 · Our rotation':feedCount>1?`USA · ${feedCount} feeds`:'USA feed';const now=document.createElement('span');now.className='channel-now';now.id=`channel-now-${channel.id}`;now.textContent='Loading guide…';button.setAttribute('aria-describedby',now.id);label.append(title,now,detail);
+      const dot=document.createElement('span');dot.className='selection-indicator';dot.setAttribute('aria-hidden','true');button.append(badge,label,dot);button.addEventListener('click',()=>{nativeSuspended=false;start(channel);});
       $(favorite?'favorite-channels':'network-channels').append(button);
     }
     $('favorite-count').textContent=String(favoriteCount).padStart(2,'0');$('network-count').textContent=String(networkCount).padStart(2,'0');$('lineup-summary').textContent=`${channels.length} channels · USA feeds · Local playback`;
   }
-  $('start-watching').addEventListener('click',()=>{if(state.selected)start(state.selected);});
-  $('retry').addEventListener('click',()=>{if(state.selected)start(state.selected,{feed:state.feed});});
+  $('start-watching').addEventListener('click',()=>{if(state.selected){nativeSuspended=false;start(state.selected);}});
+  $('retry').addEventListener('click',()=>{if(state.selected){nativeSuspended=false;start(state.selected,{feed:state.feed});}});
   $('feed-select').addEventListener('change',event=>chooseFeed(event.target.value));
   $('next-feed').addEventListener('click',()=>{if(!state.selected)return;const feeds=playableFeeds(state.selected);const index=feeds.findIndex(feed=>String(feed.id)===String(state.feed?.id));chooseFeed(feeds[(index+1)%feeds.length]?.id);});
-  $('play-toggle').addEventListener('click',()=>{if((!state.started||document.body.dataset.playback==='error')&&state.selected)start(state.selected,{feed:state.feed});else if(video.paused)tryPlay();else{clearTimeout(state.stallTimer);video.pause();}});
+  $('play-toggle').addEventListener('click',()=>{if((!state.started||document.body.dataset.playback==='error')&&state.selected){nativeSuspended=false;start(state.selected,{feed:state.feed});}else if(video.paused)tryPlay(true);else{clearTimeout(state.stallTimer);video.pause();}});
   function toggleMute(){video.muted=!(video.muted||video.volume===0);if(!video.muted&&video.volume===0)video.volume=0.5;state.muted=video.muted;state.volume=video.volume;saveAudio();updateAudio();}
   $('mute-toggle').addEventListener('click',toggleMute);
   $('volume').addEventListener('input',event=>{video.volume=Number(event.target.value)/100;video.muted=video.volume===0;state.volume=video.volume;state.muted=video.muted;saveAudio();updateAudio();});
-  $('go-live').addEventListener('click',()=>{const position=state.hls?.liveSyncPosition;if(Number.isFinite(position))video.currentTime=position;tryPlay();});
+  $('go-live').addEventListener('click',()=>{if(archivePlayback){nativeSuspended=false;continueArchive();return;}const position=state.hls?.liveSyncPosition;if(Number.isFinite(position))video.currentTime=position;tryPlay(true);});
   $('theater').addEventListener('click',()=>setTheater(!theater));
+  window.charliflixBack=()=>{if(guideController?.isOpen()){guideController.close();return true;}if(theater){setTheater(false);return true;}return false;};
   document.addEventListener('keydown',event=>{
     if(event.defaultPrevented||event.altKey||event.ctrlKey||event.metaKey||event.repeat)return;
     if(event.isComposing)return;
@@ -265,13 +301,15 @@
   controls.addEventListener('pointerleave',showTheaterControls);
   $('fullscreen').addEventListener('click',async()=>{try{if(document.fullscreenElement)await document.exitFullscreen();else{video.controls=true;await video.requestFullscreen();}}catch{video.controls=false;$('playback-note').textContent='Fullscreen needs an active browser window';}});
   document.addEventListener('fullscreenchange',()=>{video.controls=document.fullscreenElement===video;$('fullscreen').setAttribute('aria-label',document.fullscreenElement?'Exit fullscreen':'Enter fullscreen');});
-  video.addEventListener('playing',()=>{if(document.body.dataset.playback==='paused')state.lastProgressAt=Date.now();state.receivedPlayback=true;state.fallbackFrom='';$('idle-slate').hidden=true;$('error-overlay').hidden=true;$('loading-overlay').hidden=true;$('go-live').disabled=false;status('playing','Live',`Watching live · ${feedLabel()}`);showQuality();showTheaterControls();armStallTimer();});
+  video.addEventListener('playing',()=>{if(document.body.dataset.playback==='paused')state.lastProgressAt=Date.now();state.receivedPlayback=true;state.fallbackFrom='';$('idle-slate').hidden=true;$('error-overlay').hidden=true;$('loading-overlay').hidden=true;$('go-live').disabled=false;status('playing',archivePlayback?'Archive':'Live',archivePlayback?`${archivePlayback.programTitle} · Charliflix rotation`:`Watching live · ${feedLabel()}`);showQuality();showTheaterControls();armStallTimer();armArchive();});
   video.addEventListener('waiting',()=>{if(state.started&&$('error-overlay').hidden&&(!video.paused||!state.receivedPlayback)){$('loading-overlay').hidden=false;$('loading-text').textContent=`${feedProgress('Buffering')}…`;status('buffering','Buffering',feedProgress('Waiting for'));armStallTimer(state.receivedPlayback?25000:state.startupDelay);}});
-  video.addEventListener('timeupdate',()=>{if(state.started&&!video.paused&&$('error-overlay').hidden&&Math.abs(video.currentTime-state.lastTime)>0.05){state.lastTime=video.currentTime;state.lastProgressAt=Date.now();armStallTimer();}});
+  video.addEventListener('timeupdate',()=>{if(archivePlayback&&!video.paused&&video.currentTime>=archivePlayback.trimEnd){continueArchive();return;}if(state.started&&!video.paused&&$('error-overlay').hidden&&Math.abs(video.currentTime-state.lastTime)>0.05){state.lastTime=video.currentTime;state.lastProgressAt=Date.now();armStallTimer();}});
   video.addEventListener('pause',()=>{showTheaterControls();if(state.started&&state.receivedPlayback&&$('error-overlay').hidden){clearTimeout(state.stallTimer);$('loading-overlay').hidden=true;status('paused','Paused','Paused · Press play to resume');}});
   video.addEventListener('error',()=>{if(state.started&&!state.hls&&$('error-overlay').hidden)advanceFeed('The player could not read this feed.');});
+  video.addEventListener('ended',()=>{if(archivePlayback&&$('error-overlay').hidden)continueArchive();});
+  video.addEventListener('loadedmetadata',()=>{if(!archivePlayback)return;if(archiveExpired()){continueArchive();return;}const target=archivePlayback.startTime+(Date.now()-archivePlayback.receivedAt)/1000;if(Number.isFinite(video.duration)&&target>=video.duration){fail('The archive recording is shorter than its published schedule.');return;}try{video.currentTime=Math.min(archivePlayback.trimEnd-0.05,target);void tryPlay();}catch{fail('The archive recording could not seek to the current show.');}});
   video.addEventListener('volumechange',()=>{state.muted=video.muted;state.volume=video.volume;updateAudio();saveAudio();});video.addEventListener('loadedmetadata',showQuality);video.addEventListener('resize',showQuality);
-  window.addEventListener('pagehide',()=>{clearTimeout(state.retryTimer);clearTimeout(state.stallTimer);clearTimeout(controlsTimer);guideController?.destroy();state.hls?.destroy();});
+  window.addEventListener('pagehide',()=>{clearTimeout(state.retryTimer);clearTimeout(state.stallTimer);clearTimeout(controlsTimer);clearArchive();guideController?.destroy();state.hls?.destroy();});
   try { setTheater(localStorage.getItem('channel-room:theater') === 'true'); } catch {}
   updateAudio();
   fetch('/api/channels').then(response=>{if(!response.ok)throw new Error('The channel list is unavailable.');return response.json();}).then(data=>{state.channels=data.channels.filter(channel=>channel.enabled!==false);renderChannels(state.channels);let last='339';try{last=localStorage.getItem('channel-room:last-channel')||last;}catch{}const initial=state.channels.find(channel=>String(channel.id)===last)||state.channels[0];if(initial){select(initial);state.feed=preferredFeed(initial);renderFeeds(initial,state.feed);}else fail('No channels are configured.');if(window.CharliflixGuide&&window.CharliflixGuideModel){guideController=window.CharliflixGuide.create({channels:state.channels,channelName:channel=>names[channel.id]||channel.name,onTune:id=>{const channel=state.channels.find(item=>item.id===String(id));if(channel)start(channel);}});}}).catch(error=>fail(error.message));

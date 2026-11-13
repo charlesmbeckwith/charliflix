@@ -8,18 +8,19 @@ const { createServer } = require('../server.cjs');
 
 const edge = 'https://edge.example.sbs';
 
-test('the fixed channel catalog includes the five favorites and skips the unavailable PBS source', () => {
+test('the fixed channel catalog includes the favorites and archive channel and skips the unavailable PBS source', () => {
   const provider = new ChannelProvider();
   const catalog = provider.listChannels();
-  assert.deepEqual(catalog.map(item => item.id), ['339', '310', '317', '298', '303', '51', '52', '53', '54', '210', '300']);
+  assert.deepEqual(catalog.map(item => item.id), ['339', '1054', '310', '317', '298', '303', '51', '52', '53', '54', '210', '300']);
   assert.deepEqual(catalog.filter(item => item.pinned).map(({ id, name, category, enabled }) => ({ id, name, category, enabled })), [
     { id: '339', name: 'Cartoon Network', category: 'favorites', enabled: true },
+    { id: '1054', name: 'Adult Swim Archive', category: 'favorites', enabled: true },
     { id: '310', name: 'Comedy Central', category: 'favorites', enabled: true },
     { id: '317', name: 'FX', category: 'favorites', enabled: true },
     { id: '298', name: 'FXX', category: 'favorites', enabled: true },
     { id: '303', name: 'AMC', category: 'favorites', enabled: true },
   ]);
-  assert.equal(catalog.filter(item => item.enabled).length, 10);
+  assert.equal(catalog.filter(item => item.enabled).length, 11);
   assert.equal(new Set(catalog.map(item => item.id)).size, catalog.length);
   assert.throws(() => provider.channel('210'), /not configured/);
   assert.throws(() => provider.channel('https://attacker.example'), /not configured/);

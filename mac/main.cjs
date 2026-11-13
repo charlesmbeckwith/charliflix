@@ -2,7 +2,7 @@
 
 const { app, BrowserWindow, dialog, Menu, session, shell, ipcMain } = require('electron');
 const { createServer } = require('../server.cjs');
-const { startOwnedServer, isAppDocumentUrl, isAppResourceUrl, isExternalPageUrl, allowsPermission } = require('./runtime.cjs');
+const { startOwnedServer, isAppDocumentUrl, allowsRequest, isExternalPageUrl, allowsPermission } = require('./runtime.cjs');
 const path = require('node:path');
 const fs = require('node:fs');
 const { createUpdateNotifications } = require('./updates.cjs');
@@ -45,10 +45,7 @@ if (!app.requestSingleInstanceLock()) {
       allowsPermission(permission, details.requestingUrl || webContents?.getURL(), origin, details.isMainFrame));
     ses.on('will-download', event => event.preventDefault());
     ses.webRequest.onBeforeRequest((details, callback) => {
-      const allowed = details.resourceType === 'mainFrame'
-        ? isAppDocumentUrl(details.url, origin)
-        : details.resourceType !== 'subFrame' && isAppResourceUrl(details.url, origin);
-      callback({ cancel: !allowed });
+      callback({ cancel: !allowsRequest(details.resourceType, details.url, origin) });
     });
   }
 

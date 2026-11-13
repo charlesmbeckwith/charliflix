@@ -2,12 +2,15 @@
 
 Checked October 28, 2026 (America/Los_Angeles). These observations can change when providers recover or move. They describe the sources checked, not permanent channel availability.
 
-## Sources supported by Charliflix 0.3.7
+## Sources supported by Charliflix 0.3.8
 
 | Channels | Feed choices |
 | --- | --- |
 | ABC, CBS, NBC, FOX | Player 1, Player 2, CDNLiveTV |
 | Cartoon Network, Comedy Central, FX, FXX, AMC, CW | Player 1, Player 2 |
+| Adult Swim Archive | Public recordings listed by Spelunkr channel 54, on Charliflix's own rotation |
+
+The archive addition was checked November 13, 2026. It uses Spelunkr's public recording manifest and Internet Archive's ranged MP4 playback, rather than an HLS feed. Sampled video was H.264 640×480 with non-silent stereo AAC. Guide entries and scheduled switches follow Charliflix's rotation, which differs from Spelunkr's bump-card and music scheduling. Public availability is not rights clearance. The original network-feed observations below remain dated October 28.
 
 The original site's Players 1, 3 and 7 use the same primary embed. Player 2 uses the alternate already integrated in Charliflix. The three remaining player slots vary by channel, so a Cartoon Network-only test was insufficient to assess the whole lineup.
 

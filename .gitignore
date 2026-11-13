@@ -21,3 +21,16 @@ mac/verification.json
 updates/*verification.json
 __pycache__/
 *.pyc
+android/.cache/
+android/.gradle/
+android/.cxx/
+android/app/.cxx/
+android/app/build/
+android/build/
+android/app/libnode/
+android/app/src/main/assets/
+android/version.properties
+android/local.properties
+android/.signing/
+*.keystore
+*.jks

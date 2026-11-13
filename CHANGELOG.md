@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.8
+
+- Added an initial Android ARM64 beta for Android 8 and newer, including Retroid Pocket Nova controls and larger touch targets. The signed APK includes its own local backend and needs no PC or hosted service.
+- Added D-pad focus, A to select, B to go back, X to mute, Y for the guide, L1/R1 for channel changes and Start for theater mode. Android pauses playback and browser timers in the background; scheduled switches require the app in the foreground.
+- Added Adult Swim Archive from Spelunkr channel 54's public recording list. Charliflix uses its own rotation, with timing different from Spelunkr's player, automatic trim-aware transitions, current titles, roughly 24 hours of guide listings and scheduled switches.
+- Added bounded archive metadata parsing and media URL validation, with direct MP4 playback restricted to archive media hosts. Existing HLS feed choices and fallback remain available for live channels.
+- Added repeatable Android signing, APK audits and an Android 13 emulator smoke-test workflow. Android updates use manual APK replacement with the same signing key. Retroid Nova device acceptance remains outstanding.
+
 ## 0.3.7
 
 - Added CDNLiveTV as a third feed for ABC, CBS, NBC and FOX, using exact matches from its documented public free catalog.

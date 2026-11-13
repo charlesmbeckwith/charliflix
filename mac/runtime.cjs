@@ -26,6 +26,24 @@ function isAppResourceUrl(value, origin) {
   } catch { return false; }
 }
 
+function isArchiveMediaUrl(value) {
+  if (typeof value !== 'string' || value.length > 8192) return false;
+  try {
+    const url = new URL(value);
+    if (url.protocol !== 'https:' || url.username || url.password || url.hash ||
+        (url.port && url.port !== '443') || !url.pathname.toLowerCase().endsWith('.mp4')) return false;
+    return (url.hostname === 'archive.org' && url.pathname.startsWith('/download/')) ||
+      /^(?:[a-z0-9-]+\.)+us\.archive\.org$/.test(url.hostname);
+  } catch { return false; }
+}
+
+function allowsRequest(resourceType, value, origin) {
+  if (resourceType === 'mainFrame') return isAppDocumentUrl(value, origin);
+  if (resourceType === 'subFrame') return false;
+  return isAppResourceUrl(value, origin) ||
+    (resourceType === 'media' && isArchiveMediaUrl(value));
+}
+
 function allowsPermission(permission, requestingUrl, origin, isMainFrame) {
   // Ordinary, user-initiated video fullscreen is the only document permission.
   // Automatic fullscreen, capture, notifications, and device access stay denied.
@@ -87,5 +105,5 @@ async function startOwnedServer({ createServer, root, preferredPort = DEFAULT_PO
 }
 
 module.exports = {
-  HOST, DEFAULT_PORT, isAppDocumentUrl, isAppResourceUrl, isExternalPageUrl, allowsPermission, startOwnedServer,
+  HOST, DEFAULT_PORT, isAppDocumentUrl, isAppResourceUrl, isArchiveMediaUrl, allowsRequest, isExternalPageUrl, allowsPermission, startOwnedServer,
 };

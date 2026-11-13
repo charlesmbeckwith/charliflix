@@ -1,0 +1,83 @@
+plugins {
+    id 'com.android.application'
+}
+
+def releaseVersion = new Properties()
+def versionFile = rootProject.file('version.properties')
+if (!versionFile.isFile()) {
+    throw new GradleException('Generate android/version.properties with the Android packaging script first.')
+}
+versionFile.withInputStream { releaseVersion.load(it) }
+def appVersion = releaseVersion.getProperty('versionName')
+def appCode = releaseVersion.getProperty('versionCode')
+if (!(appVersion ==~ /\d+\.\d+\.\d+/) || !(appCode ==~ /[1-9][0-9]*/)) {
+    throw new GradleException('Invalid Android application version metadata.')
+}
+def signingPath = System.getenv('CHARLIFLIX_ANDROID_KEYSTORE')
+def signingPassword = System.getenv('CHARLIFLIX_ANDROID_KEYSTORE_PASSWORD')
+def signingAlias = System.getenv('CHARLIFLIX_ANDROID_KEY_ALIAS')
+def signingKeyPassword = System.getenv('CHARLIFLIX_ANDROID_KEY_PASSWORD')
+def hasSigningKey = signingPath && signingPassword && signingAlias && signingKeyPassword
+def targetAbi = project.findProperty('charliflixAbi') ?: 'arm64-v8a'
+if (!(targetAbi in ['arm64-v8a', 'x86_64'])) {
+    throw new GradleException('Charliflix Android supports arm64-v8a and the x86_64 test emulator only.')
+}
+if (gradle.startParameter.taskNames.any { it.toLowerCase().contains('release') } && !hasSigningKey) {
+    throw new GradleException('Release builds require the retained Charliflix Android signing key.')
+}
+
+android {
+    namespace 'com.charliflix.player'
+    compileSdk 35
+    ndkVersion '28.0.13004108'
+    useLibrary 'android.test.runner', false
+    useLibrary 'android.test.base', false
+    useLibrary 'android.test.mock', false
+
+    defaultConfig {
+        applicationId 'com.charliflix.player'
+        minSdk 26
+        targetSdk 35
+        versionCode Integer.parseInt(appCode)
+        versionName appVersion
+        testInstrumentationRunner 'android.test.InstrumentationTestRunner'
+        ndk { abiFilters targetAbi }
+        externalNativeBuild {
+            cmake {
+                cppFlags '-std=c++20'
+                arguments '-DANDROID_STL=c++_shared', '-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON'
+            }
+        }
+    }
+    buildFeatures { buildConfig true }
+    signingConfigs {
+        if (hasSigningKey) {
+            release {
+                storeFile file(signingPath)
+                storePassword signingPassword
+                keyAlias signingAlias
+                keyPassword signingKeyPassword
+            }
+        }
+    }
+    buildTypes {
+        release {
+            minifyEnabled false
+            if (hasSigningKey) signingConfig signingConfigs.release
+        }
+        debug { applicationIdSuffix '.debug' }
+    }
+    externalNativeBuild {
+        cmake {
+            path file('src/main/cpp/CMakeLists.txt')
+            version '3.22.1'
+        }
+    }
+    packaging {
+        jniLibs { useLegacyPackaging = false }
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}

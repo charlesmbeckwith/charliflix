@@ -28,6 +28,10 @@ test('the public CDNLiveTV choice is offered only for its four verified network 
   const catalog = p.listChannels();
   assert.deepEqual(catalog.filter(channel => channel.feeds.some(feed => feed.id === 'cdnlive')).map(channel => channel.id), Object.keys(ids));
   for (const channel of catalog) {
+    if (channel.playbackType === 'file') {
+      assert.equal(channel.feeds.some(feed => feed.id === 'cdnlive'), false);
+      continue;
+    }
     assert.equal(channel.defaultFeed, 'stream');
     assert.deepEqual(channel.feeds.slice(0, 2).map(feed => feed.id), ['stream', 'cast']);
     if (Object.hasOwn(ids, channel.id)) {
