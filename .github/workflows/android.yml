@@ -66,7 +66,7 @@ jobs:
           test "$(adb shell getprop sys.boot_completed | tr -d '\r')" = '1'
           adb shell wm size 1080x810
           adb shell wm density 240
-          android/.cache/gradle-8.11.1/bin/gradle -p android --no-daemon -PcharliflixAbi=x86_64 connectedDebugAndroidTest
+          android/.cache/gradle-8.11.1/bin/gradle -p android --no-daemon -PcharliflixAbi=x86_64 -Pandroid.injected.androidTest.leaveApksInstalledAfterRun=true connectedDebugAndroidTest
           python3 android/audit.py --smoke-passed
           mkdir -p android-smoke
           adb pull /sdcard/Android/data/com.charliflix.player.debug/files/charliflix-android-smoke.png android-smoke/
