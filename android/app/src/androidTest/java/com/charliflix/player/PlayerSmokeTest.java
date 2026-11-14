@@ -74,7 +74,7 @@ public final class PlayerSmokeTest extends InstrumentationTestCase {
             awaitJavascript(web, "innerWidth<innerHeight&&innerWidth<=400", "true");
             assertLongTextLayout(context, web, "portrait");
         } finally {
-            if (activity != null) { Activity finished = activity; instrumentation.runOnMainSync(finished::finish); }
+            if (activity != null) finishAndWait(activity);
             shell("wm size " + restoredSize);
         }
     }
@@ -152,7 +152,7 @@ public final class PlayerSmokeTest extends InstrumentationTestCase {
             instrumentation.runOnMainSync(() -> context.startActivity(launch));
             awaitNativeFlag(activity, "stopped", false);
             assertEquals("Ordinary backgrounding suspends playback once", "1", evaluate(web, "window.charliflixPipSmoke.suspends"));
-        } finally { instrumentation.runOnMainSync(activity::finish); }
+        } finally { finishAndWait(activity); }
     }
 
     private void awaitNativeFlag(Activity activity, String name, boolean expected) throws Exception {
@@ -277,8 +277,19 @@ public final class PlayerSmokeTest extends InstrumentationTestCase {
         assertEquals("Recreation preserves the origin and preferences", origin, awaitReady(readyFile).getString("origin"));
         assertEquals("Test restores the default theme and clean fixture history", "true", evaluate(recreatedWeb,
                 "window.CharliflixSettings.setTheme('teal')&&window.CharliflixHistory.clear().ok"));
-        Activity finished = recreated;
-        instrumentation.runOnMainSync(finished::finish);
+        finishAndWait(recreated);
+    }
+
+    private void finishAndWait(Activity activity) throws Exception {
+        getInstrumentation().runOnMainSync(activity::finish);
+        long deadline = android.os.SystemClock.elapsedRealtime() + 5000;
+        do {
+            AtomicReference<Boolean> destroyed = new AtomicReference<>();
+            getInstrumentation().runOnMainSync(() -> destroyed.set(activity.isDestroyed()));
+            if (destroyed.get()) { getInstrumentation().waitForIdleSync(); return; }
+            Thread.sleep(50);
+        } while (android.os.SystemClock.elapsedRealtime() < deadline);
+        fail("Activity did not finish before the next test launch");
     }
 
     private JSONObject awaitReady(File file) throws Exception {
@@ -297,17 +308,20 @@ public final class PlayerSmokeTest extends InstrumentationTestCase {
 
     private WebView awaitPlayer(Activity activity) throws Exception {
         long deadline = android.os.SystemClock.elapsedRealtime() + 20000;
+        String lastCount = "no WebView";
         while (android.os.SystemClock.elapsedRealtime() < deadline) {
             AtomicReference<WebView> current = new AtomicReference<>();
             getInstrumentation().runOnMainSync(() -> current.set(findWebView(activity.findViewById(android.R.id.content))));
             WebView web = current.get();
             if (web != null) {
                 String count = evaluate(web, "document.querySelectorAll('.channel-card').length");
+                lastCount = count;
                 if (count.matches("[0-9]+") && Integer.parseInt(count) >= 10) return web;
             }
             Thread.sleep(150);
         }
-        throw new AssertionError("Real player UI did not load its channel list");
+        throw new AssertionError("Real player UI did not load its channel list (last count=" + lastCount
+                + ", finishing=" + activity.isFinishing() + ", destroyed=" + activity.isDestroyed() + ")");
     }
 
     private String evaluate(WebView web, String script) throws Exception {

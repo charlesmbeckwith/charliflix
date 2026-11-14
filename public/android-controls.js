@@ -5,11 +5,11 @@
   if (!/CharliflixAndroid\//.test(window.navigator?.userAgent || '')) return;
   document.body.classList.add('android-app');
   const focusable = 'button,a[href],input,select,textarea';
-  const editable = target => target?.closest('textarea,select,[contenteditable],input:not([type="range"])');
+  const editable = target => target?.closest('textarea,select,[contenteditable],input:not([type="range"]):not([type="checkbox"]):not([type="radio"]):not([type="button"])');
   const currentScope = () => Array.from(document.querySelectorAll('dialog[open]')).at(-1) || document;
   const visible = element => !element.disabled && element.getAttribute('tabindex') !== '-1' && element.getClientRects().length > 0;
   const activate = element => {
-    if (element?.matches('button,a[href]') && visible(element)) {
+    if (element?.matches('button,a[href],input[type="checkbox"],input[type="radio"]') && visible(element)) {
       element.click();
       return true;
     }

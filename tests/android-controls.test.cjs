@@ -26,7 +26,7 @@ function player(android = true) {
       getAttribute: name => name === 'aria-pressed' ? String(Boolean(element.selected)) : null,
       getClientRects: () => element.hidden ? [] : [{}],
       getBoundingClientRect: () => ({ left: x, top: y, width: 80, height: 44, right: x + 80, bottom: y + 44 }),
-      matches: selector => selector.startsWith('.channel-card') ? element.channel && element.selected : selector.startsWith('input[type=') ? element.range : selector === 'button,a[href]' ? !element.range && !element.editing : false,
+      matches: selector => selector.startsWith('.channel-card') ? element.channel && element.selected : selector.startsWith('input[type=') ? element.range : selector.startsWith('button,a[href]') ? !element.range && !element.editing : false,
       closest: () => element.editing ? element : null,
       focus: () => { document.activeElement = element; },
       scrollIntoView: () => element.scrolled++,
@@ -124,6 +124,17 @@ test('episode details on top of the guide retain controller focus and block chan
   assert.equal(mark.clicks, 1);
   assert.equal(p.key('PageDown').defaultPrevented, false);
   assert.equal(channel.clicks, 0);
+});
+
+test('the settings PiP checkbox accepts controller A and keeps D-pad navigation usable', () => {
+  const p = player();
+  const checkbox = p.add('settings-pip', 100, 100, { checkbox:true });
+  const close = p.add('close-settings', 100, 200);
+  p.modal(checkbox, close); p.document.activeElement = checkbox;
+  assert.equal(p.key('Enter').defaultPrevented, true);
+  assert.equal(checkbox.clicks, 1);
+  p.key('ArrowDown');
+  assert.equal(p.document.activeElement, close);
 });
 
 test('media play key activates the ordinary control and desktop browsers remain unchanged', () => {

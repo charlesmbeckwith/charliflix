@@ -35,11 +35,13 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import java.io.ByteArrayInputStream;
+import java.lang.ref.WeakReference;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 
 public final class MainActivity extends Activity implements BackendRuntime.Listener {
     private static final int BACKGROUND = Color.rgb(11, 16, 20);
+    private static WeakReference<MainActivity> visibleActivity = new WeakReference<>(null);
     private FrameLayout root;
     private WebView web;
     private TextView notice;
@@ -170,9 +172,10 @@ public final class MainActivity extends Activity implements BackendRuntime.Liste
         web.setVisibility(View.VISIBLE);
         // WebView timers are process-wide. A previous Activity may have paused
         // them before this replacement view was created after onResume.
-        if (paused) {
+        if (stopped) {
             web.onPause();
-            web.pauseTimers();
+            MainActivity visible = visibleActivity.get();
+            if (visible == null || visible == this) web.pauseTimers();
         } else {
             web.resumeTimers();
             web.onResume();
@@ -399,15 +402,20 @@ public final class MainActivity extends Activity implements BackendRuntime.Liste
         pipRequestPending = false;
         if (web != null) {
             web.evaluateJavascript("if(typeof window.charliflixSuspend==='function')window.charliflixSuspend();else document.querySelectorAll('video,audio').forEach(media=>media.pause())", null);
-            web.pauseTimers();
+            // Timers are shared by every WebView in this process. A closing
+            // Activity may stop after its replacement has already started.
+            MainActivity visible = visibleActivity.get();
+            if (visible == null || visible == this) web.pauseTimers();
             web.onPause();
         }
+        if (visibleActivity.get() == this) visibleActivity.clear();
         super.onStop();
     }
 
     @Override protected void onStart() {
         super.onStart();
         stopped = false;
+        visibleActivity = new WeakReference<>(this);
         if (web != null) { web.resumeTimers(); web.onResume(); }
         main.removeCallbacks(pipPoll);
         main.post(pipPoll);
