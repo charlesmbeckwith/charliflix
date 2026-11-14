@@ -8,7 +8,7 @@ Get a package from [GitHub Releases](https://github.com/charlesmbeckwith/charlif
 
 - **Windows x64:** use **Charliflix-Setup.exe** for automatic updates. Node is included; the installer checks the .NET Framework 4.8 and Microsoft WebView2 requirements. The portable ZIP remains available for manual installations.
 - **Apple Silicon Mac:** requires an M1 or newer Mac and macOS 13 or newer. Unzip and move `Charliflix.app` to Applications. The app includes its own runtime. This personal test build is ad-hoc signed and unnotarized; actual Mac launch and playback still need verification, and macOS may block it.
-- **Android ARM64 — initial beta:** install **Charliflix-v0.3.10-Android-arm64.apk** on Android 8 or newer, including the Retroid Pocket Nova. The APK includes the player and local backend; no PC, server account or additional service is needed. It uses the device's Android System WebView. Actual Nova launch, playback and controller behavior still need device verification. See [Android installation and build notes](android/README.md).
+- **Android ARM64 — initial beta:** install **Charliflix-v0.3.11-Android-arm64.apk** on Android 8 or newer, including the Retroid Pocket Nova. The APK includes the player and local backend; no PC, server account or additional service is needed. It uses the device's Android System WebView. Actual Nova launch, playback and controller behavior still need device verification. See [Android installation and build notes](android/README.md).
 
 The apps do not install a background service or add a login startup entry. The Windows installer creates the normal application shortcuts; the Android APK adds a normal launcher app.
 
@@ -16,7 +16,7 @@ The apps do not install a background service or add a login startup entry. The W
 
 Choose a channel, then use **Feed** to select a source. Live cable and network channels have Player 1 and Player 2; **ABC, CBS, NBC and FOX also have CDNLiveTV** as a third option. Adult Swim Archive uses its single archive source. The app remembers your manual choice separately for each channel. It tries another available feed when a connection fails or video stalls, with a finite retry limit. A fallback says which player failed and which is being tried; if all fail, the error lists their actual attempt order. Automatic fallback preserves your saved manual choice. You can switch feeds yourself if picture plays without sound.
 
-Manual attempts have up to 35 seconds to start. Automatic fallback attempts have 15 seconds each, so adding sources does not add another 35-second wait for every failed option. Once playback starts, the normal playback-progress and pause handling apply. Only the selected source is loaded.
+Live-feed manual attempts have up to 35 seconds to start. Automatic fallback attempts have 15 seconds each, so adding sources does not add another 35-second wait for every failed option. Archive recordings allow up to two minutes for the initial load and seek, then one minute without video progress before showing an error. If an archive recovers, its error clears automatically. Only the selected source is loaded.
 
 **Theater** fills the app window. Press **T** to toggle it or **Escape** to leave. **M** toggles mute. Fullscreen fills the monitor. Volume, mute and theater settings survive feed changes.
 

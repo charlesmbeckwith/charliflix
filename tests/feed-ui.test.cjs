@@ -42,6 +42,9 @@ async function player(channels = [channel()], stored = {}, options = {}) {
       this.hidden = id === 'error-overlay' || id === 'loading-overlay';
       this.paused = true;
       this.currentTime = 0;
+      this.readyState = 0;
+      this.seeking = false;
+      this.error = null;
       this.duration = NaN;
       this.className = '';
       const classes = new Set();
@@ -148,7 +151,7 @@ async function player(channels = [channel()], stored = {}, options = {}) {
     selectChannel: id => created.find(node => node.className === 'channel-card' && node.dataset.id === id).emit('click'),
     chooseFeed: feed => { get('feed-select').value = feed; get('feed-select').emit('change'); },
     fatal: (details = {}) => Hls.instances.at(-1).emit('error', { fatal: true, type: 'other', ...details }),
-    playing() { get('video').paused = false; get('video').emit('playing'); },
+    playing() { get('video').paused = false; get('video').readyState = 3; get('video').emit('playing'); },
     key(key, extra = {}) {
       const event = { key, target: body, defaultPrevented: false, preventDefault() { this.defaultPrevented = true; }, ...extra };
       for (const callback of documentListeners.keydown || []) callback(event);
@@ -473,6 +476,97 @@ test('archive playback uses the bounded descriptor and seeks to its rotation pos
   assert.equal(p.get('state-text').textContent, 'Archive');
   assert.match(p.get('playback-note').textContent, /Example Adult Swim Block.*Charliflix rotation/);
   assert.match(p.get('go-live').title, /archive rotation/);
+});
+
+test('slow archive startup gets its own deadline and first playback starts a fresh progress window', async () => {
+  const p = await player([archiveChannel()], {}, { fetchImpl: url => url.endsWith('/playback') ? jsonResponse(archiveDescriptor({ trimEnd: 1045, endsAt: 1100000 })) : undefined });
+  p.click('start-watching'); await p.flush();
+  p.elapse(45000);
+  p.get('video').emit('waiting');
+  assert.equal(p.get('error-overlay').hidden, true, 'archive loading can exceed live-feed startup limits');
+  p.get('video').duration = 1200;
+  p.get('video').emit('loadedmetadata'); p.playing();
+  p.elapse(0);
+  assert.equal(p.get('error-overlay').hidden, true, 'starting video cannot immediately time out against the tune timestamp');
+  assert.equal(p.get('state-text').textContent, 'Archive');
+  p.elapse(59999);
+  p.get('video').emit('waiting'); p.playing();
+  assert.equal(p.get('error-overlay').hidden, true);
+  p.elapse(1);
+  assert.equal(p.get('error-overlay').hidden, false, 'repeated events without video progress cannot extend the archive stall deadline');
+});
+
+test('an archive that starts after the finite startup timeout clears its error and remains playable', async () => {
+  const p = await player([archiveChannel()], {}, { fetchImpl: url => url.endsWith('/playback') ? jsonResponse(archiveDescriptor({ trimEnd: 1045, endsAt: 1100000 })) : undefined });
+  p.click('start-watching'); await p.flush();
+  p.elapse(119999); p.get('video').emit('waiting');
+  assert.equal(p.get('error-overlay').hidden, true);
+  p.elapse(1);
+  assert.equal(p.get('error-overlay').hidden, false, 'a genuinely unresponsive recording still has a finite timeout');
+  p.elapse(10000);
+  const video = p.get('video'); video.duration = 1200;
+  video.emit('loadedmetadata');
+  video.readyState = 3; video.emit('timeupdate');
+  assert.equal(p.get('error-overlay').hidden, false, 'the initial seek alone is not evidence of playback');
+  p.playing(); p.elapse(0);
+  assert.equal(p.get('error-overlay').hidden, true);
+  assert.equal(p.get('loading-overlay').hidden, true);
+  assert.equal(p.get('state-text').textContent, 'Archive');
+  assert.equal(p.get('go-live').disabled, false);
+  p.elapse(20000); video.currentTime += 20; video.emit('timeupdate');
+  p.elapse(20000);
+  assert.equal(p.get('error-overlay').hidden, true);
+});
+
+test('resuming a paused archive retains its full buffering allowance', async () => {
+  const p = await player([archiveChannel()], {}, { fetchImpl: url => url.endsWith('/playback') ? jsonResponse(archiveDescriptor({ trimEnd: 1045, endsAt: 1100000 })) : undefined });
+  p.click('start-watching'); await p.flush();
+  p.get('video').duration = 1200; p.get('video').emit('loadedmetadata'); p.playing();
+  p.click('play-toggle'); p.elapse(10000); p.click('play-toggle');
+  p.elapse(59999);
+  assert.equal(p.get('error-overlay').hidden, true);
+  p.elapse(1);
+  assert.equal(p.get('error-overlay').hidden, false);
+});
+
+test('real archive progress recovers a stall without another playing event and restores block transitions', async () => {
+  let calls = 0;
+  const p = await player([archiveChannel()], {}, { fetchImpl: url => {
+    if (!url.endsWith('/playback')) return undefined;
+    calls++;
+    return jsonResponse(archiveDescriptor({ trimEnd: 1045, endsAt: 300000 }));
+  } });
+  p.click('start-watching'); await p.flush();
+  const video = p.get('video'); video.duration = 1200;
+  video.emit('loadedmetadata'); p.playing();
+  p.elapse(60000);
+  assert.equal(p.get('error-overlay').hidden, false);
+  for (const extra of [{ seeking: true }, { readyState: 1 }, { paused: true }, { error: { code: 3 } }]) {
+    Object.assign(video, { seeking: false, readyState: 3, paused: false, error: null }, extra);
+    video.currentTime += 0.1; video.emit('timeupdate');
+    assert.equal(p.get('error-overlay').hidden, false, 'unplayable media events cannot dismiss the error');
+  }
+  Object.assign(video, { seeking: false, readyState: 3, paused: false, error: null });
+  video.currentTime += 0.25; video.emit('timeupdate'); p.elapse(0);
+  assert.equal(p.get('error-overlay').hidden, true);
+  assert.equal(p.get('state-text').textContent, 'Archive');
+  assert.match(p.get('playback-note').textContent, /Charliflix rotation/);
+  for (let i = 0; i < 6; i++) { p.elapse(20000); video.currentTime += 20; video.emit('timeupdate'); }
+  p.elapse(20000); await p.flush();
+  assert.equal(calls, 2, 'recovery rearms the automatic archive block transition');
+});
+
+test('hard archive errors and native suspension cannot be dismissed by late media events', async () => {
+  const p = await player([archiveChannel()], {}, { fetchImpl: url => url.endsWith('/playback') ? jsonResponse(archiveDescriptor()) : undefined });
+  p.click('start-watching'); await p.flush();
+  const video = p.get('video'); video.duration = 40; video.emit('loadedmetadata');
+  p.playing(); video.currentTime = 30; video.emit('timeupdate');
+  assert.equal(p.get('error-overlay').hidden, false);
+  assert.match(p.get('error-detail').textContent, /shorter than its published schedule/);
+  p.click('retry'); await p.flush();
+  p.suspend(); p.playing(); video.currentTime = 46; video.emit('timeupdate');
+  assert.equal(p.get('state-text').textContent, 'Connecting');
+  assert.equal(p.timers.size, 0, 'late playing cannot restart watchdogs in the background');
 });
 
 test('changing channels aborts an old archive request and ignores a late response', async () => {

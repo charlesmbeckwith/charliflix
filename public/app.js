@@ -73,7 +73,7 @@
   }).catch(() => {});
   const initials = { '339':'CN', '310':'CC', '317':'FX', '298':'FXX', '303':'AMC', '51':'abc', '52':'CBS', '53':'NBC', '54':'FOX', '210':'PBS', '300':'CW', '1054':'[as]' };
   const names = { '339':'Cartoon Network', '310':'Comedy Central', '317':'FX', '298':'FXX', '303':'AMC', '51':'ABC', '52':'CBS', '53':'NBC', '54':'FOX', '210':'PBS', '300':'CW' };
-  const state = { channels:[], selected:null, hls:null, started:false, retries:0, mediaRecoveries:0, generation:0, retryTimer:null, stallTimer:null, muted:false, volume:0.75, feed:null, attemptedFeeds:new Set(), feedChoices:Object.create(null), fallbackFrom:'', startupDelay:35000, receivedPlayback:false, lastTime:0, lastProgressAt:0 };
+  const state = { channels:[], selected:null, hls:null, started:false, retries:0, mediaRecoveries:0, generation:0, retryTimer:null, stallTimer:null, muted:false, volume:0.75, feed:null, attemptedFeeds:new Set(), feedChoices:Object.create(null), fallbackFrom:'', startupDelay:35000, receivedPlayback:false, recoverableStall:false, lastTime:0, lastProgressAt:0 };
   let archivePlayback=null, archiveController=null, archiveTimer=null;
   let nativeSuspended=false;
   window.charliflixSuspend=()=>{nativeSuspended=true;clearTimeout(state.stallTimer);clearTimeout(archiveTimer);state.hls?.stopLoad();video.pause();};
@@ -180,20 +180,21 @@
     try{localStorage.setItem('channel-room:feeds',JSON.stringify(state.feedChoices));}catch{}
     start(state.selected,{feed});
   }
-  function armStallTimer(delay=25000) {
+  function playbackDelay() { return state.selected?.playbackType==='file'?60000:25000; }
+  function armStallTimer(delay=playbackDelay()) {
     clearTimeout(state.stallTimer);
     const generation=state.generation;
     const remaining=Math.max(0,delay-(Date.now()-state.lastProgressAt));
-    state.stallTimer=setTimeout(()=>{if(generation===state.generation&&state.started&&$('error-overlay').hidden)advanceFeed('The feed stopped delivering playable video.');},remaining);
+    state.stallTimer=setTimeout(()=>{if(generation===state.generation&&state.started&&!nativeSuspended&&$('error-overlay').hidden)advanceFeed('The feed stopped delivering playable video.',true);},remaining);
   }
-  function advanceFeed(message) {
+  function advanceFeed(message, stalled=false) {
     clearTimeout(state.retryTimer);clearTimeout(state.stallTimer);
     const next=playableFeeds(state.selected).find(feed=>!state.attemptedFeeds.has(String(feed.id)));
     if(next){start(state.selected,{feed:next,attemptedFeeds:state.attemptedFeeds,automatic:true,failedFeed:feedLabel()});return;}
     state.hls?.stopLoad();
     const labels=[...state.attemptedFeeds].map(id=>feedsFor(state.selected).find(feed=>String(feed.id)===id)?.label||id);
     const extra=labels.length>1?` The available feeds have been tried (${labels.join(' → ')}).`:'';
-    fail(`${message}${extra} You can retry or choose a feed manually.`);
+    fail(`${message}${extra} You can retry or choose a feed manually.`,stalled&&Boolean(archivePlayback));
   }
   function select(channel) {
     state.selected = channel;
@@ -208,16 +209,18 @@
     try{localStorage.setItem('channel-room:last-channel',channel.id);}catch{}
     document.title=`${name} · Charliflix`;
   }
-  function fail(message) {
+  function fail(message, recoverableStall=false) {
     clearTimeout(state.retryTimer);clearTimeout(state.stallTimer);
     clearTimeout(archiveTimer);archiveController?.abort();
+    state.recoverableStall=recoverableStall;
+    state.lastTime=video.currentTime;
     $('loading-overlay').hidden=true;
     $('idle-slate').hidden=true;
     $('error-overlay').hidden=false;
     $('error-detail').textContent=message||'The feed is unavailable right now. Try this channel again in a moment.';
     status('error','Unavailable',state.selected?`${feedLabel()} unavailable · Try another feed or channel`:'Try again in a moment');
   }
-  async function tryPlay(userInitiated=false) { if(nativeSuspended&&!userInitiated)return;if(archiveExpired()){nativeSuspended=false;continueArchive();return;}if(nativeSuspended){nativeSuspended=false;state.hls?.startLoad();}const generation=state.generation;if(document.body.dataset.playback==='paused'){state.lastProgressAt=Date.now();armStallTimer(35000);}try { await video.play(); } catch(error) { if(generation!==state.generation)return;if(error.name==='NotAllowedError'){clearTimeout(state.stallTimer);$('loading-overlay').hidden=true;status('paused','Press play','Press play to start with sound');}else if(error.name!=='AbortError'){advanceFeed('The player could not start this feed.');} } }
+  async function tryPlay(userInitiated=false) { if(nativeSuspended&&!userInitiated)return;if(archiveExpired()){nativeSuspended=false;continueArchive();return;}if(nativeSuspended){nativeSuspended=false;state.hls?.startLoad();}const generation=state.generation;if(document.body.dataset.playback==='paused'){state.lastProgressAt=Date.now();armStallTimer(state.selected?.playbackType==='file'?(state.receivedPlayback?playbackDelay():state.startupDelay):35000);}try { await video.play(); } catch(error) { if(generation!==state.generation)return;if(error.name==='NotAllowedError'){clearTimeout(state.stallTimer);$('loading-overlay').hidden=true;status('paused','Press play','Press play to start with sound');}else if(error.name!=='AbortError'){advanceFeed('The player could not start this feed.');} } }
   function showQuality(){ const level=state.hls?.currentLevel; const info=level>=0?state.hls.levels[level]:null; const height=video.videoHeight||info?.height; $('quality-label').textContent=height?`${height}p`:'—'; }
   function start(channel, options={}) {
     clearTimeout(state.retryTimer);clearTimeout(state.stallTimer);
@@ -229,7 +232,8 @@
     select(channel);state.started=true;state.retries=0;state.mediaRecoveries=0;state.receivedPlayback=false;state.lastTime=0;state.lastProgressAt=Date.now();
     state.feed=options.feed||preferredFeed(channel);
     state.fallbackFrom=options.automatic?options.failedFeed||'The previous feed':'';
-    state.startupDelay=options.automatic?15000:35000;
+    state.startupDelay=channel.playbackType==='file'?120000:options.automatic?15000:35000;
+    state.recoverableStall=false;
     state.attemptedFeeds=options.attemptedFeeds?new Set(options.attemptedFeeds):new Set();
     renderFeeds(channel,state.feed);
     if(!state.feed){fail('No playable feeds are configured for this channel.');return;}
@@ -301,13 +305,30 @@
   controls.addEventListener('pointerleave',showTheaterControls);
   $('fullscreen').addEventListener('click',async()=>{try{if(document.fullscreenElement)await document.exitFullscreen();else{video.controls=true;await video.requestFullscreen();}}catch{video.controls=false;$('playback-note').textContent='Fullscreen needs an active browser window';}});
   document.addEventListener('fullscreenchange',()=>{video.controls=document.fullscreenElement===video;$('fullscreen').setAttribute('aria-label',document.fullscreenElement?'Exit fullscreen':'Enter fullscreen');});
-  video.addEventListener('playing',()=>{if(document.body.dataset.playback==='paused')state.lastProgressAt=Date.now();state.receivedPlayback=true;state.fallbackFrom='';$('idle-slate').hidden=true;$('error-overlay').hidden=true;$('loading-overlay').hidden=true;$('go-live').disabled=false;status('playing',archivePlayback?'Archive':'Live',archivePlayback?`${archivePlayback.programTitle} · Charliflix rotation`:`Watching live · ${feedLabel()}`);showQuality();showTheaterControls();armStallTimer();armArchive();});
-  video.addEventListener('waiting',()=>{if(state.started&&$('error-overlay').hidden&&(!video.paused||!state.receivedPlayback)){$('loading-overlay').hidden=false;$('loading-text').textContent=`${feedProgress('Buffering')}…`;status('buffering','Buffering',feedProgress('Waiting for'));armStallTimer(state.receivedPlayback?25000:state.startupDelay);}});
-  video.addEventListener('timeupdate',()=>{if(archivePlayback&&!video.paused&&video.currentTime>=archivePlayback.trimEnd){continueArchive();return;}if(state.started&&!video.paused&&$('error-overlay').hidden&&Math.abs(video.currentTime-state.lastTime)>0.05){state.lastTime=video.currentTime;state.lastProgressAt=Date.now();armStallTimer();}});
+  function playbackStarted() {
+    // First playback needs a fresh deadline even after a long metadata load or seek.
+    // Repeated media events at the same position must not extend a stalled feed.
+    if(!state.receivedPlayback||state.recoverableStall||document.body.dataset.playback==='paused'||Math.abs(video.currentTime-state.lastTime)>0.05)state.lastProgressAt=Date.now();
+    state.lastTime=video.currentTime;state.receivedPlayback=true;state.recoverableStall=false;state.fallbackFrom='';
+    $('idle-slate').hidden=true;$('error-overlay').hidden=true;$('loading-overlay').hidden=true;$('go-live').disabled=false;
+    status('playing',archivePlayback?'Archive':'Live',archivePlayback?`${archivePlayback.programTitle} · Charliflix rotation`:`Watching live · ${feedLabel()}`);
+    showQuality();showTheaterControls();armStallTimer();armArchive();
+  }
+  video.addEventListener('playing',()=>{if(state.started&&!nativeSuspended&&!video.paused&&!video.error&&($('error-overlay').hidden||state.recoverableStall))playbackStarted();});
+  video.addEventListener('waiting',()=>{if(state.started&&!nativeSuspended&&$('error-overlay').hidden&&(!video.paused||!state.receivedPlayback)){$('loading-overlay').hidden=false;$('loading-text').textContent=`${feedProgress('Buffering')}…`;status('buffering','Buffering',feedProgress('Waiting for'));armStallTimer(state.receivedPlayback?playbackDelay():state.startupDelay);}});
+  video.addEventListener('timeupdate',()=>{
+    if(!state.started||nativeSuspended||video.paused||video.seeking||video.error)return;
+    if(!$('error-overlay').hidden){
+      if(!state.recoverableStall||!archivePlayback||video.readyState<2||video.currentTime-state.lastTime<=0.05)return;
+      playbackStarted();
+    }
+    if(archivePlayback&&video.currentTime>=archivePlayback.trimEnd){continueArchive();return;}
+    if(Math.abs(video.currentTime-state.lastTime)>0.05){state.lastTime=video.currentTime;state.lastProgressAt=Date.now();armStallTimer();}
+  });
   video.addEventListener('pause',()=>{showTheaterControls();if(state.started&&state.receivedPlayback&&$('error-overlay').hidden){clearTimeout(state.stallTimer);$('loading-overlay').hidden=true;status('paused','Paused','Paused · Press play to resume');}});
   video.addEventListener('error',()=>{if(state.started&&!state.hls&&$('error-overlay').hidden)advanceFeed('The player could not read this feed.');});
   video.addEventListener('ended',()=>{if(archivePlayback&&$('error-overlay').hidden)continueArchive();});
-  video.addEventListener('loadedmetadata',()=>{if(!archivePlayback)return;if(archiveExpired()){continueArchive();return;}const target=archivePlayback.startTime+(Date.now()-archivePlayback.receivedAt)/1000;if(Number.isFinite(video.duration)&&target>=video.duration){fail('The archive recording is shorter than its published schedule.');return;}try{video.currentTime=Math.min(archivePlayback.trimEnd-0.05,target);void tryPlay();}catch{fail('The archive recording could not seek to the current show.');}});
+  video.addEventListener('loadedmetadata',()=>{if(!archivePlayback)return;if(archiveExpired()){continueArchive();return;}const target=archivePlayback.startTime+(Date.now()-archivePlayback.receivedAt)/1000;if(Number.isFinite(video.duration)&&target>=video.duration){fail('The archive recording is shorter than its published schedule.');return;}try{video.currentTime=Math.min(archivePlayback.trimEnd-0.05,target);state.lastTime=video.currentTime;void tryPlay();}catch{fail('The archive recording could not seek to the current show.');}});
   video.addEventListener('volumechange',()=>{state.muted=video.muted;state.volume=video.volume;updateAudio();saveAudio();});video.addEventListener('loadedmetadata',showQuality);video.addEventListener('resize',showQuality);
   window.addEventListener('pagehide',()=>{clearTimeout(state.retryTimer);clearTimeout(state.stallTimer);clearTimeout(controlsTimer);clearArchive();guideController?.destroy();state.hls?.destroy();});
   try { setTheater(localStorage.getItem('channel-room:theater') === 'true'); } catch {}

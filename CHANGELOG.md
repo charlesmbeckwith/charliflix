@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.11
+
+- Fixed a slow archive load immediately showing a playback error after video had started. First playback now starts a fresh progress deadline.
+- Clear a recoverable archive timeout when video resumes, including recovery without another `playing` event, and restore automatic block transitions.
+- Allow archive recordings up to two minutes for initial loading and seeking, and one minute for later buffering or resume. Live-feed fallback timings are unchanged.
+- Keep invalid-recording errors visible and ignore late media events while Android playback is suspended.
+
 ## 0.3.10
 
 - Added an initial Android ARM64 beta for Android 8 and newer, including Retroid Pocket Nova controls and larger touch targets. The signed APK includes its own local backend and needs no PC or hosted service.
