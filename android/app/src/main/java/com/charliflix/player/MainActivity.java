@@ -148,6 +148,7 @@ public final class MainActivity extends Activity implements BackendRuntime.Liste
                 if (!isLocal(url)) return;
                 notice.setVisibility(View.GONE);
                 if (!paused) view.requestFocus();
+                setPipLayout(isInPictureInPictureMode());
                 queryPipState(false);
             }
         });

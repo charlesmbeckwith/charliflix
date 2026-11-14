@@ -72,6 +72,11 @@ public final class PlayerSmokeTest extends InstrumentationTestCase {
             assertLongTextLayout(context, web, "landscape");
             shell("wm size 540x1032");
             awaitJavascript(web, "innerWidth<innerHeight&&innerWidth<=400", "true");
+            assertFalse("Responsive screen-layout changes preserve the Activity", activity.isDestroyed());
+            AtomicReference<WebView> portraitWeb = new AtomicReference<>();
+            Activity portraitActivity = activity;
+            instrumentation.runOnMainSync(() -> portraitWeb.set(findWebView(portraitActivity.findViewById(android.R.id.content))));
+            assertSame("Responsive layout retains the same video WebView", web, portraitWeb.get());
             assertLongTextLayout(context, web, "portrait");
         } finally {
             if (activity != null) finishAndWait(activity);
@@ -135,7 +140,7 @@ public final class PlayerSmokeTest extends InstrumentationTestCase {
             awaitNativeFlag(activity, "pipEligible", true);
             assertTrue("Home gesture accepted", instrumentation.getUiAutomation().performGlobalAction(AccessibilityService.GLOBAL_ACTION_HOME));
             awaitPictureInPicture(activity, true);
-            assertEquals("PiP invokes the video-only layout hook", "true", evaluate(web, "document.body.classList.contains('picture-in-picture')"));
+            awaitJavascript(web, "document.body.classList.contains('picture-in-picture')", "true");
             evaluate(web, "setTimeout(()=>window.charliflixPipSmoke.timer=true,25);true");
             awaitJavascript(web, "window.charliflixPipSmoke.timer===true", "true");
             assertEquals("Entering PiP must not suspend playback", "0", evaluate(web, "window.charliflixPipSmoke.suspends"));
