@@ -76,7 +76,31 @@
   const state = { channels:[], selected:null, hls:null, started:false, retries:0, mediaRecoveries:0, generation:0, retryTimer:null, stallTimer:null, muted:false, volume:0.75, feed:null, attemptedFeeds:new Set(), feedChoices:Object.create(null), fallbackFrom:'', startupDelay:35000, receivedPlayback:false, recoverableStall:false, lastTime:0, lastProgressAt:0 };
   let archivePlayback=null, archiveController=null, archiveTimer=null;
   let nativeSuspended=false;
-  window.charliflixSuspend=()=>{nativeSuspended=true;clearTimeout(state.stallTimer);clearTimeout(archiveTimer);state.hls?.stopLoad();video.pause();};
+  let pictureInPicture=false, currentProgrammes={}, watchSample=null;
+  function resetWatchSample() { watchSample=null;window.CharliflixHistory?.flush(); }
+  function samplePlayback() {
+    const now=Date.now(),programme=currentProgrammes[state.selected?.id];
+    const current={time:now,position:video.currentTime,generation:state.generation,programme};
+    const previous=watchSample;watchSample=current;
+    if(!previous||!programme||previous.programme?.start!==programme.start||previous.programme?.channelId!==programme.channelId||previous.generation!==state.generation)return;
+    const wall=now-previous.time,media=(video.currentTime-previous.position)*1000;
+    if(wall<=0||wall>5000||media<=0||media>wall*1.5+500||video.readyState<2||!state.receivedPlayback)return;
+    window.CharliflixHistory?.recordCoverage(programme,now-Math.min(wall,media),now);
+  }
+  window.charliflixSuspend=()=>{nativeSuspended=true;resetWatchSample();clearTimeout(state.stallTimer);clearTimeout(archiveTimer);state.hls?.stopLoad();video.pause();};
+  window.charliflixAndroidState=()=>{
+    const rect=video.getBoundingClientRect();
+    return {playing:state.started&&state.receivedPlayback&&!nativeSuspended&&!video.paused&&!video.ended&&!video.error&&$('error-overlay').hidden,
+      pictureInPictureEnabled:window.CharliflixSettings?.isPictureInPictureEnabled()!==false,
+      videoWidth:video.videoWidth||0,videoHeight:video.videoHeight||0,
+      rect:{x:rect.x,y:rect.y,width:rect.width,height:rect.height},viewportWidth:window.innerWidth,viewportHeight:window.innerHeight};
+  };
+  window.charliflixSetPictureInPicture=enabled=>{
+    pictureInPicture=enabled===true;
+    if(pictureInPicture){window.CharliflixSettings?.close();for(let i=0;i<2&&guideController?.isOpen();i++)guideController.close();}
+    document.body.classList.toggle('picture-in-picture',pictureInPicture);
+    if(!pictureInPicture)window.CharliflixScrollText?.refresh();
+  };
   function clearArchive() { clearTimeout(archiveTimer);archiveTimer=null;archiveController?.abort();archiveController=null;archivePlayback=null; }
   function archiveExpired() { return archivePlayback && Date.now()-archivePlayback.receivedAt >= archivePlayback.endsAt-archivePlayback.serverTime; }
   function continueArchive() { if(state.selected?.playbackType==='file')start(state.selected,{feed:state.feed}); }
@@ -214,6 +238,7 @@
     clearTimeout(archiveTimer);archiveController?.abort();
     state.recoverableStall=recoverableStall;
     state.lastTime=video.currentTime;
+    resetWatchSample();
     $('loading-overlay').hidden=true;
     $('idle-slate').hidden=true;
     $('error-overlay').hidden=false;
@@ -226,6 +251,7 @@
     clearTimeout(state.retryTimer);clearTimeout(state.stallTimer);
     const generation=++state.generation;
     clearArchive();
+    resetWatchSample();
     const muted=state.muted,volume=state.volume;
     state.hls?.destroy();state.hls=null;
     video.pause();video.removeAttribute('src');video.load();
@@ -272,7 +298,7 @@
       const favorite=channel.pinned===true||channel.category==='favorites';if(favorite)favoriteCount++;else networkCount++;
       const button=document.createElement('button');button.type='button';button.className='channel-card';button.dataset.id=channel.id;button.setAttribute('aria-pressed','false');button.setAttribute('aria-label',`Watch ${names[channel.id]||channel.name}`);
       const badge=document.createElement('span');badge.className='channel-badge';badge.textContent=initials[channel.id]||channel.name.slice(0,2);
-      const label=document.createElement('span');label.className='channel-copy';const title=document.createElement('span');title.className='channel-name';title.textContent=names[channel.id]||channel.name;const detail=document.createElement('span');detail.className='channel-meta';const feedCount=playableFeeds(channel).length;detail.textContent=channel.playbackType==='file'?'Spelunkr 54 · Our rotation':feedCount>1?`USA · ${feedCount} feeds`:'USA feed';const now=document.createElement('span');now.className='channel-now';now.id=`channel-now-${channel.id}`;now.textContent='Loading guide…';button.setAttribute('aria-describedby',now.id);label.append(title,now,detail);
+      const label=document.createElement('span');label.className='channel-copy';const title=document.createElement('span');title.className='channel-name';title.textContent=names[channel.id]||channel.name;const detail=document.createElement('span');detail.className='channel-meta';const feedCount=playableFeeds(channel).length;detail.textContent=channel.playbackType==='file'?'Spelunkr 54 · Our rotation':feedCount>1?`USA · ${feedCount} feeds`:'USA feed';const now=document.createElement('span');now.className='channel-now';now.id=`channel-now-${channel.id}`;now.textContent='Loading guide…';const episode=document.createElement('span');episode.className='channel-episode';episode.id=`channel-episode-${channel.id}`;episode.hidden=true;const watched=document.createElement('span');watched.className='watched-badge channel-watched';watched.id=`channel-watched-${channel.id}`;watched.textContent='✓ Watched';watched.hidden=true;watched.setAttribute('aria-label','Episode watched');button.setAttribute('aria-describedby',`${now.id} ${episode.id}`);label.append(title,now,episode,watched,detail);
       const dot=document.createElement('span');dot.className='selection-indicator';dot.setAttribute('aria-hidden','true');button.append(badge,label,dot);button.addEventListener('click',()=>{nativeSuspended=false;start(channel);});
       $(favorite?'favorite-channels':'network-channels').append(button);
     }
@@ -288,10 +314,11 @@
   $('volume').addEventListener('input',event=>{video.volume=Number(event.target.value)/100;video.muted=video.volume===0;state.volume=video.volume;state.muted=video.muted;saveAudio();updateAudio();});
   $('go-live').addEventListener('click',()=>{if(archivePlayback){nativeSuspended=false;continueArchive();return;}const position=state.hls?.liveSyncPosition;if(Number.isFinite(position))video.currentTime=position;tryPlay(true);});
   $('theater').addEventListener('click',()=>setTheater(!theater));
-  window.charliflixBack=()=>{if(guideController?.isOpen()){guideController.close();return true;}if(theater){setTheater(false);return true;}return false;};
+  window.charliflixBack=()=>{if(window.CharliflixSettings?.isOpen()){window.CharliflixSettings.close();return true;}if(guideController?.isOpen()){guideController.close();return true;}if(theater){setTheater(false);return true;}return false;};
   document.addEventListener('keydown',event=>{
     if(event.defaultPrevented||event.altKey||event.ctrlKey||event.metaKey||event.repeat)return;
     if(event.isComposing)return;
+    if(window.CharliflixSettings?.isOpen()){if(event.key==='Escape'){event.preventDefault();window.CharliflixSettings.close();}return;}
     if(event.key==='Escape'&&guideController?.isOpen()){event.preventDefault();guideController.close();}
     else if(!event.target.closest('input,textarea,select,[contenteditable]')&&event.key.toLowerCase()==='g'&&guideController){event.preventDefault();guideController.toggle();}
     else if(!event.target.closest('input,textarea,select,[contenteditable]')&&event.key.toLowerCase()==='m'){event.preventDefault();toggleMute();}
@@ -317,21 +344,23 @@
   video.addEventListener('playing',()=>{if(state.started&&!nativeSuspended&&!video.paused&&!video.error&&($('error-overlay').hidden||state.recoverableStall))playbackStarted();});
   video.addEventListener('waiting',()=>{if(state.started&&!nativeSuspended&&$('error-overlay').hidden&&(!video.paused||!state.receivedPlayback)){$('loading-overlay').hidden=false;$('loading-text').textContent=`${feedProgress('Buffering')}…`;status('buffering','Buffering',feedProgress('Waiting for'));armStallTimer(state.receivedPlayback?playbackDelay():state.startupDelay);}});
   video.addEventListener('timeupdate',()=>{
-    if(!state.started||nativeSuspended||video.paused||video.seeking||video.error)return;
+    if(!state.started||nativeSuspended||video.paused||video.seeking||video.error){watchSample=null;return;}
     if(!$('error-overlay').hidden){
       if(!state.recoverableStall||!archivePlayback||video.readyState<2||video.currentTime-state.lastTime<=0.05)return;
       playbackStarted();
     }
     if(archivePlayback&&video.currentTime>=archivePlayback.trimEnd){continueArchive();return;}
+    samplePlayback();
     if(Math.abs(video.currentTime-state.lastTime)>0.05){state.lastTime=video.currentTime;state.lastProgressAt=Date.now();armStallTimer();}
   });
-  video.addEventListener('pause',()=>{showTheaterControls();if(state.started&&state.receivedPlayback&&$('error-overlay').hidden){clearTimeout(state.stallTimer);$('loading-overlay').hidden=true;status('paused','Paused','Paused · Press play to resume');}});
+  video.addEventListener('seeking',resetWatchSample);
+  video.addEventListener('pause',()=>{resetWatchSample();showTheaterControls();if(state.started&&state.receivedPlayback&&$('error-overlay').hidden){clearTimeout(state.stallTimer);$('loading-overlay').hidden=true;status('paused','Paused','Paused · Press play to resume');}});
   video.addEventListener('error',()=>{if(state.started&&!state.hls&&$('error-overlay').hidden)advanceFeed('The player could not read this feed.');});
   video.addEventListener('ended',()=>{if(archivePlayback&&$('error-overlay').hidden)continueArchive();});
   video.addEventListener('loadedmetadata',()=>{if(!archivePlayback)return;if(archiveExpired()){continueArchive();return;}const target=archivePlayback.startTime+(Date.now()-archivePlayback.receivedAt)/1000;if(Number.isFinite(video.duration)&&target>=video.duration){fail('The archive recording is shorter than its published schedule.');return;}try{video.currentTime=Math.min(archivePlayback.trimEnd-0.05,target);state.lastTime=video.currentTime;void tryPlay();}catch{fail('The archive recording could not seek to the current show.');}});
   video.addEventListener('volumechange',()=>{state.muted=video.muted;state.volume=video.volume;updateAudio();saveAudio();});video.addEventListener('loadedmetadata',showQuality);video.addEventListener('resize',showQuality);
-  window.addEventListener('pagehide',()=>{clearTimeout(state.retryTimer);clearTimeout(state.stallTimer);clearTimeout(controlsTimer);clearArchive();guideController?.destroy();state.hls?.destroy();});
+  window.addEventListener('pagehide',()=>{resetWatchSample();clearTimeout(state.retryTimer);clearTimeout(state.stallTimer);clearTimeout(controlsTimer);clearArchive();guideController?.destroy();state.hls?.destroy();});
   try { setTheater(localStorage.getItem('channel-room:theater') === 'true'); } catch {}
   updateAudio();
-  fetch('/api/channels').then(response=>{if(!response.ok)throw new Error('The channel list is unavailable.');return response.json();}).then(data=>{state.channels=data.channels.filter(channel=>channel.enabled!==false);renderChannels(state.channels);let last='339';try{last=localStorage.getItem('channel-room:last-channel')||last;}catch{}const initial=state.channels.find(channel=>String(channel.id)===last)||state.channels[0];if(initial){select(initial);state.feed=preferredFeed(initial);renderFeeds(initial,state.feed);}else fail('No channels are configured.');if(window.CharliflixGuide&&window.CharliflixGuideModel){guideController=window.CharliflixGuide.create({channels:state.channels,channelName:channel=>names[channel.id]||channel.name,onTune:id=>{const channel=state.channels.find(item=>item.id===String(id));if(channel)start(channel);}});}}).catch(error=>fail(error.message));
+  fetch('/api/channels').then(response=>{if(!response.ok)throw new Error('The channel list is unavailable.');return response.json();}).then(data=>{state.channels=data.channels.filter(channel=>channel.enabled!==false);renderChannels(state.channels);let last='339';try{last=localStorage.getItem('channel-room:last-channel')||last;}catch{}const initial=state.channels.find(channel=>String(channel.id)===last)||state.channels[0];if(initial){select(initial);state.feed=preferredFeed(initial);renderFeeds(initial,state.feed);}else fail('No channels are configured.');if(window.CharliflixGuide&&window.CharliflixGuideModel){guideController=window.CharliflixGuide.create({channels:state.channels,channelName:channel=>names[channel.id]||channel.name,onCurrentProgrammes:programmes=>{currentProgrammes=programmes;},onTune:id=>{const channel=state.channels.find(item=>item.id===String(id));if(channel){nativeSuspended=false;start(channel);}}});}}).catch(error=>fail(error.message));
 })();

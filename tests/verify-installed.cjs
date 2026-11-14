@@ -98,7 +98,7 @@ async function checkPlayer(bridge, runtime) {
   assert.equal(path.resolve(health.directory), root); assert.equal(health.port, Number(url.port));
   assert(Number.isInteger(health.pid));
   backends.push({ port: health.port, pid: health.pid, runtimeDirectory: runtime });
-  for (const [resource, mime] of [['/', 'text/html'], ['/app.js', 'text/javascript'], ['/guide-model.js', 'text/javascript'], ['/guide-ui.js', 'text/javascript'], ['/styles.css', 'text/css'], ['/node_modules/hls.js/dist/hls.min.js', 'text/javascript']]) {
+  for (const [resource, mime] of [['/', 'text/html'], ['/app.js', 'text/javascript'], ['/watch-history.js', 'text/javascript'], ['/settings-ui.js', 'text/javascript'], ['/scroll-text.js', 'text/javascript'], ['/guide-model.js', 'text/javascript'], ['/guide-ui.js', 'text/javascript'], ['/styles.css', 'text/css'], ['/node_modules/hls.js/dist/hls.min.js', 'text/javascript']]) {
     const response = await request(ready.url, resource);
     assert.equal(response.status, 200, `${resource} must be present in the installed payload.`);
     assert(response.type.startsWith(mime)); assert(response.body.length > 100);

@@ -8,6 +8,9 @@
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/styles.css">
   <script defer src="/node_modules/hls.js/dist/hls.min.js"></script>
+  <script defer src="/scroll-text.js"></script>
+  <script defer src="/watch-history.js"></script>
+  <script defer src="/settings-ui.js"></script>
   <script defer src="/guide-model.js"></script>
   <script defer src="/guide-ui.js"></script>
   <script defer src="/app.js"></script>
@@ -17,7 +20,7 @@
   <div class="app-shell">
     <header class="topbar">
       <a class="brand" href="/" aria-label="Charliflix home"><svg viewBox="0 0 32 32" aria-hidden="true"><rect x="4" y="8" width="24" height="19" rx="5"/><path d="m11 3 5 5 5-5"/><path d="m13 14 8 4-8 4z"/></svg><span>charli<span class="brand-light">flix</span></span></a>
-      <div class="topbar-tools"><button class="guide-open" id="open-guide" data-open-guide type="button" aria-keyshortcuts="G" title="Channel guide (G)" disabled>Guide <kbd>G</kbd><span class="guide-count" id="guide-scheduled-badge" hidden></span></button><span class="local-label"><span></span>YOUR LOCAL PLAYER</span><div class="update-control"><span id="app-version" class="app-version" aria-label="Application version"></span><button id="check-updates" class="update-button" type="button">Check for updates</button></div></div>
+      <div class="topbar-tools"><button class="guide-open" id="open-guide" data-open-guide type="button" aria-keyshortcuts="G" title="Channel guide (G)" disabled>Guide <kbd>G</kbd><span class="guide-count" id="guide-scheduled-badge" hidden></span></button><button class="icon-button settings-open" id="open-settings" type="button" aria-label="Open settings" title="Settings"><svg viewBox="0 0 24 24" aria-hidden="true"><path class="stroke-path" d="m9 3-.7 2.3-2 .9L4 5.7 2 9l1.7 1.8v2.4L2 15l2 3.3 2.3-.5 2 .9L9 21h4l.7-2.3 2-.9 2.3.5 2-3.3-1.7-1.8v-2.4L20 9l-2-3.3-2.3.5-2-.9L13 3z"/><circle class="stroke-path" cx="11" cy="12" r="3"/></svg></button><span class="local-label"><span></span>YOUR LOCAL PLAYER</span><div class="update-control"><span id="app-version" class="app-version" aria-label="Application version"></span><button id="check-updates" class="update-button" type="button">Check for updates</button></div></div>
     </header>
     <div class="update-result" id="update-result" hidden><span id="update-message" role="status" aria-live="polite"></span><a id="open-release" href="https://github.com/charlesmbeckwith/charliflix/releases/latest" target="_blank" rel="noopener noreferrer" hidden>Open release</a><button id="restart-update" class="update-button" type="button" hidden>Restart to update</button></div>
     <main class="workspace">
@@ -67,6 +70,22 @@
       </aside>
     </div>
     <footer class="guide-footer"><span>Live feeds use Eastern reference listings; affiliates may differ. Adult Swim Archive uses Charliflix’s own rotation of Spelunkr 54 recordings.</span><a href="https://epgtalk.com/api.html" target="_blank" rel="noopener noreferrer">Listings by EPGTalk</a></footer>
+  </dialog>
+  <dialog class="settings-dialog" id="settings-dialog" aria-labelledby="settings-title">
+    <div class="settings-header"><div><p class="eyebrow">MAKE YOURSELF AT HOME</p><h2 id="settings-title">Settings</h2></div><button class="icon-button" id="close-settings" type="button" aria-label="Close settings">✕</button></div>
+    <div class="settings-content">
+      <fieldset class="theme-settings"><legend>Accent color</legend><p>Choose a color for buttons, selections and highlights.</p><div class="theme-options" role="group" aria-label="Accent color">
+        <button class="theme-choice" data-theme-choice="teal" type="button" aria-pressed="false"><span class="theme-swatch" data-swatch="teal"></span>Teal</button>
+        <button class="theme-choice" data-theme-choice="blue" type="button" aria-pressed="false"><span class="theme-swatch" data-swatch="blue"></span>Blue</button>
+        <button class="theme-choice" data-theme-choice="purple" type="button" aria-pressed="false"><span class="theme-swatch" data-swatch="purple"></span>Purple</button>
+        <button class="theme-choice" data-theme-choice="pink" type="button" aria-pressed="false"><span class="theme-swatch" data-swatch="pink"></span>Pink</button>
+        <button class="theme-choice" data-theme-choice="orange" type="button" aria-pressed="false"><span class="theme-swatch" data-swatch="orange"></span>Orange</button>
+        <button class="theme-choice" data-theme-choice="white" type="button" aria-pressed="false"><span class="theme-swatch" data-swatch="white"></span>White</button>
+      </div></fieldset>
+      <section class="settings-section" id="settings-pip-section" aria-labelledby="settings-playback-title" hidden><h3 id="settings-playback-title">Playback</h3><label class="settings-toggle" for="settings-pip"><span><strong>Picture-in-picture</strong><span>Keep watching in a floating window when you switch apps.</span></span><input id="settings-pip" type="checkbox" checked></label></section>
+      <section class="settings-section" aria-labelledby="settings-history-title"><h3 id="settings-history-title">Watched episodes</h3><p id="settings-history-count">No watched episodes yet.</p><p>Your watched history stays on this device when you update Charliflix. Uninstalling or clearing app data removes it.</p><button class="secondary-button" id="settings-clear-history" type="button" disabled>Clear watched history…</button><div class="settings-clear-confirm" id="settings-clear-confirm" hidden><p>Remove all watched episode marks from this device?</p><div><button class="secondary-button" id="settings-confirm-clear" type="button">Clear history</button><button class="secondary-button" id="settings-cancel-clear" type="button">Keep history</button></div></div></section>
+      <p class="settings-status" id="settings-status" role="status" aria-live="polite"></p>
+    </div>
   </dialog>
   <div class="guide-toast" id="guide-toast" role="status" aria-live="polite" hidden></div>
 </body>

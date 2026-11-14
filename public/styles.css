@@ -377,3 +377,113 @@ kbd{font:inherit;font-size:10px;border:1px solid #52695c;border-radius:4px;paddi
 .android-app.theater-mode .app-shell{padding:0}
 .android-app.theater-mode .workspace{padding:0;display:block}
 .android-app.theater-mode .player-controls{padding:24px 10px 8px}
+
+/* Each channel owns its width; long listings cannot push into the video or the next column. */
+.sidebar{overflow:hidden;isolation:isolate}
+.channel-scroll{max-width:100%;overflow-x:hidden;margin:0;padding:4px 6px 4px 0}
+.channel-scroll>section,.channel-list{min-width:0;max-width:100%}
+.channel-list{grid-template-columns:minmax(0,1fr)}
+.channel-card{min-width:0;max-width:100%;overflow:hidden}
+.channel-copy{flex:1 1 0%;width:0;min-width:0;overflow:hidden}
+.channel-name,.channel-now,.channel-meta,.channel-episode{min-width:0;max-width:100%;overflow:hidden;white-space:nowrap}
+.channel-name{width:100%}
+.channel-episode{display:block;font-size:10px;line-height:1.45;color:var(--dim);margin-top:1px}
+.channel-episode[hidden]{display:none}
+.channel-card .selection-indicator{margin-left:0}
+.channel-badge{flex-shrink:0}
+.now-heading>div:first-child{min-width:0}
+#now-title{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.topbar,.topbar-tools,.update-control{min-width:0}
+.brand{flex-shrink:0}
+.controls-left,.controls-right{max-width:100%}
+.feed-control select{min-width:0;width:min(100%,158px);text-overflow:ellipsis}
+
+/* Scroll only overflowing text inside its existing row, never the card itself. */
+.scroll-text{display:block;position:relative;width:100%;max-width:100%;overflow:hidden;white-space:nowrap;text-overflow:clip}
+.scroll-text-content{display:inline-block;width:max-content;max-width:none;vertical-align:top;will-change:auto}
+.scroll-text.is-overflowing.text-visible>.scroll-text-content{animation:scroll-label var(--scroll-duration,10s) ease-in-out infinite alternate}
+.guide-programme-title.scroll-text{display:block;-webkit-line-clamp:unset;-webkit-box-orient:initial}
+.guide-programme-episode{display:block;width:100%;font-size:10px;line-height:1.4;color:var(--dim)}
+@keyframes scroll-label{0%,15%{transform:translateX(0)}80%,100%{transform:translateX(calc(-1 * var(--scroll-distance,0px)))}}
+@media(prefers-reduced-motion:reduce){.scroll-text.is-overflowing{overflow-x:auto;scrollbar-width:none}.scroll-text-content{transform:none!important}.scroll-text::-webkit-scrollbar{display:none}}
+
+/* A theme changes the accent while the dark player keeps its current contrast. */
+:root,:root[data-theme=teal]{--accent:#7be1d1;--accent-hover:#a1efe3;--accent-panel:#17312e;--accent-panel-hover:#22453f;--accent-border:#43756b;--accent-text:#c7eee5;--accent-glow:#244a4244}
+:root[data-theme=blue]{--accent:#96c7ff;--accent-hover:#bddcff;--accent-panel:#1b2d43;--accent-panel-hover:#293f5d;--accent-border:#4f7096;--accent-text:#d6e8ff;--accent-glow:#27456944}
+:root[data-theme=purple]{--accent:#c4a5ff;--accent-hover:#ddc7ff;--accent-panel:#2e2544;--accent-panel-hover:#42345d;--accent-border:#776092;--accent-text:#e7daff;--accent-glow:#4c356844}
+:root[data-theme=pink]{--accent:#f0a8d4;--accent-hover:#ffd0ed;--accent-panel:#3d2535;--accent-panel-hover:#57364c;--accent-border:#946780;--accent-text:#ffdcf0;--accent-glow:#65354e44}
+:root[data-theme=orange]{--accent:#ffc08a;--accent-hover:#ffdbb6;--accent-panel:#3b2c22;--accent-panel-hover:#544031;--accent-border:#97724e;--accent-text:#ffe4ca;--accent-glow:#66492c44}
+:root[data-theme=white]{--accent:#f1f4f8;--accent-hover:#fff;--accent-panel:#2c3038;--accent-panel-hover:#3c424d;--accent-border:#7f8998;--accent-text:#eef2f8;--accent-glow:#525d6e44}
+body{background:radial-gradient(ellipse at 75% 0,var(--accent-glow),transparent 55%),var(--bg)}
+.channel-card[aria-pressed=true],.view-button[aria-pressed=true],.guide-programme.is-live{background:var(--accent-panel);border-color:var(--accent-border)}
+.channel-card:hover,.guide-programme:hover{background:var(--accent-panel-hover)}
+.guide-open,.update-button,.secondary-button,.feed-control select{background:var(--accent-panel);border-color:var(--accent-border);color:var(--accent-text)}
+.guide-open:hover,.update-button:hover,.secondary-button:hover{background:var(--accent-panel-hover);color:var(--accent-text)}
+.primary-button:hover{background:var(--accent-hover)}
+.state-pill[data-state=playing]{border-color:var(--accent-border);color:var(--accent)}
+.guide-count{color:#14221a}
+#volume{accent-color:var(--accent)}
+.guide-axis,.guide-time-track,.guide-corner,.guide-channel-cell{background:var(--accent-panel)}
+.guide-programme.is-live .guide-programme-action,.channel-now,.guide-channel-button:hover{color:var(--accent-text)}
+.guide-feedback,.guide-toast{background:var(--accent-panel);border-color:var(--accent-border);color:var(--accent-text)}
+.theater-mode .feed-control select{background:var(--accent-panel);border-color:var(--accent-border)}
+
+/* Settings and episode details are bounded dialogs with their own scroll surfaces. */
+.settings-dialog,.episode-dialog{width:min(620px,calc(100vw - 24px));max-width:none;max-height:calc(100dvh - 24px);border:1px solid var(--accent-border);border-radius:14px;padding:0;background:var(--panel);color:var(--text);box-shadow:0 25px 100px #000b;overflow:hidden}
+.settings-dialog[open],.episode-dialog[open]{display:flex;flex-direction:column}
+.settings-dialog::backdrop,.episode-dialog::backdrop{background:#03070cba;backdrop-filter:blur(5px)}
+.settings-header,.episode-header{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;padding:22px 24px 16px;border-bottom:1px solid var(--line);flex-shrink:0;min-width:0}
+.settings-header h2,.episode-header h2{margin:0;font-size:25px;font-weight:550;letter-spacing:-.6px;overflow-wrap:anywhere}
+.settings-header .eyebrow{font-size:9px;margin-bottom:4px}
+.settings-header>.icon-button,.episode-header>.icon-button{flex-shrink:0}
+.settings-content{padding:22px 24px;overflow:auto;overscroll-behavior:contain;min-height:0}
+.theme-settings{margin:0;padding:0;border:0;min-width:0}
+.theme-settings legend,.settings-section h3{font-size:15px;font-weight:600;margin:0 0 8px;padding:0}
+.theme-settings>p,.settings-section>p{font-size:12px;color:var(--dim);line-height:1.65;margin:0 0 16px}
+.theme-options{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.theme-choice{display:flex;align-items:center;gap:9px;min-width:0;min-height:48px;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:#10151d;color:var(--text);font-size:12px}
+.theme-choice:hover{background:var(--accent-panel-hover)}
+.theme-choice[aria-pressed=true]{background:var(--accent-panel);border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
+.theme-swatch{width:19px;height:19px;flex-shrink:0;border-radius:50%;background:var(--swatch);box-shadow:inset 0 0 0 1px #ffffff22}
+[data-swatch=teal]{--swatch:#7be1d1}[data-swatch=blue]{--swatch:#96c7ff}[data-swatch=purple]{--swatch:#c4a5ff}[data-swatch=pink]{--swatch:#f0a8d4}[data-swatch=orange]{--swatch:#ffc08a}[data-swatch=white]{--swatch:#f1f4f8}
+.settings-section{margin-top:24px;padding-top:22px;border-top:1px solid var(--line)}
+.settings-toggle{display:flex;align-items:center;justify-content:space-between;gap:16px;cursor:pointer}
+.settings-toggle>span{min-width:0}
+.settings-toggle strong{display:block;font-size:13px;font-weight:550;margin-bottom:5px}
+.settings-toggle>span>span{display:block;font-size:12px;line-height:1.6;color:var(--dim)}
+.settings-toggle input{width:21px;height:21px;flex-shrink:0;accent-color:var(--accent)}
+.settings-clear-confirm{margin-top:14px;padding:14px;border:1px solid var(--accent-border);border-radius:8px;background:var(--accent-panel)}
+.settings-clear-confirm p{font-size:12px;line-height:1.5;margin:0 0 12px}
+.settings-clear-confirm>div{display:flex;gap:8px;flex-wrap:wrap}
+.settings-status{margin:18px 0 0;font-size:12px;line-height:1.6;color:var(--accent-text)}
+.settings-status:empty{display:none}
+.settings-open{flex-shrink:0}
+.episode-dialog{padding-bottom:18px;overflow-y:auto;overscroll-behavior:contain}
+.episode-header{overflow-wrap:anywhere}
+.episode-header>div{min-width:0}
+.episode-dialog>.episode-subtitle,.episode-dialog>.episode-time,.episode-dialog>.episode-description,.episode-dialog>.episode-actions{margin-left:24px;margin-right:24px}
+.episode-subtitle{font-size:14px;font-weight:550;line-height:1.5;color:var(--accent-text);overflow-wrap:anywhere}
+.episode-time{font-size:11px;line-height:1.5;color:var(--dim)}
+.episode-description{font-size:13px;line-height:1.8;white-space:pre-line;overflow-wrap:anywhere}
+.episode-dialog>.episode-note,.episode-dialog>.episode-feedback{margin-left:24px;margin-right:24px;font-size:11px;line-height:1.65;overflow-wrap:anywhere}
+.episode-note{color:var(--dim)}
+.episode-feedback{color:var(--accent-text)}
+.episode-feedback:empty{display:none}
+.episode-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:20px}
+.watched-badge{display:inline-flex;align-items:center;gap:4px;font-size:10px;color:var(--accent);font-weight:650;line-height:1.5}
+.channel-copy>.watched-badge{margin-top:3px}
+.guide-programme>.watched-badge{font-size:9px}
+.android-app .settings-open{min-height:44px;width:44px}
+@media(max-width:540px){.settings-header,.episode-header{padding:17px 16px 13px}.settings-content{padding:18px 16px}.settings-header h2,.episode-header h2{font-size:23px}.theme-options{gap:8px}.theme-choice{padding:10px 8px;gap:7px}.episode-dialog>.episode-subtitle,.episode-dialog>.episode-time,.episode-dialog>.episode-description,.episode-dialog>.episode-actions,.episode-dialog>.episode-note,.episode-dialog>.episode-feedback{margin-left:16px;margin-right:16px}.theme-swatch{width:17px;height:17px}}
+@media(max-width:380px){.topbar-tools>.guide-open{display:none}.theme-options{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
+/* Native Android picture-in-picture shows the existing video without other panels. */
+body.picture-in-picture{background:#000;overflow:hidden}
+.picture-in-picture .app-shell{padding:0!important;width:100vw;height:100dvh}
+.picture-in-picture .topbar,.picture-in-picture .sidebar,.picture-in-picture .update-result,.picture-in-picture .now-heading,.picture-in-picture .player-controls,.picture-in-picture .under-player,.picture-in-picture .guide-toast{display:none!important}
+.picture-in-picture .workspace{display:block!important;padding:0!important;min-height:0;gap:0}
+.picture-in-picture .stage{display:block!important;position:relative;width:100%;height:100%;overflow:hidden}
+.picture-in-picture .screen{position:absolute;inset:0;width:100%;height:100%;border:0;border-radius:0;background:#000}
+.picture-in-picture video{width:100%;height:100%;object-fit:contain}
+.picture-in-picture .idle-slate,.picture-in-picture .loading-overlay,.picture-in-picture .error-overlay{display:none!important}
+.picture-in-picture dialog,.picture-in-picture dialog::backdrop{display:none!important}

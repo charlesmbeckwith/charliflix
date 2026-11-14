@@ -69,6 +69,7 @@ async function player(channels = [channel()], stored = {}, options = {}) {
     play() { this.paused = false; this.playCalls = (this.playCalls || 0) + 1; return Promise.resolve(); }
     focus() { document.activeElement = this; }
     closest() { return this.editable ? this : null; }
+    getBoundingClientRect() { return { x: 180, y: 80, width: 520, height: 300 }; }
   }
 
   const get = id => {
@@ -112,7 +113,7 @@ async function player(channels = [channel()], stored = {}, options = {}) {
 
   const context = {
     document, Hls, console, URL, AbortController,
-    window: { Hls, scrollY: 0, scrollTo() {}, addEventListener() {}, ...(options.guide ? { CharliflixGuide: { create(value) { guideOptions = value; return guide; } }, CharliflixGuideModel: {} } : {}) },
+    window: { Hls, scrollY: 0, innerWidth:720, innerHeight:492, scrollTo() {}, addEventListener() {}, CharliflixHistory:options.history, CharliflixSettings:options.settings, ...(options.guide ? { CharliflixGuide: { create(value) { guideOptions = value; return guide; } }, CharliflixGuideModel: {} } : {}) },
     localStorage: { getItem: key => storage.get(key) ?? null, setItem: (key, value) => storage.set(key, value) },
     fetch: async (url, init = {}) => {
       requests.push({ url, ...init });
@@ -145,6 +146,9 @@ async function player(channels = [channel()], stored = {}, options = {}) {
     flush: () => new Promise(setImmediate),
     back: () => context.window.charliflixBack(),
     suspend: () => context.window.charliflixSuspend(),
+    nativeState: () => context.window.charliflixAndroidState(),
+    setPip: enabled => context.window.charliflixSetPictureInPicture(enabled),
+    programmes: values => guideOptions.onCurrentProgrammes(values),
     get current() { return Hls.instances.at(-1); },
     get attempts() { return Hls.instances; },
     click: id => get(id).emit('click'),
@@ -717,4 +721,48 @@ test('native suspension prevents a late archive descriptor and metadata from aut
   assert.equal(p.get('video').playCalls, 1);
   assert.equal(p.get('video').paused, false);
   assert.equal(p.attempts.length, 0);
+});
+
+test('watched tracking counts only advancing playback and excludes pauses, seeks, missing episode data and old channel samples', async () => {
+  const records = []; let flushes = 0;
+  const p = await player([channel(), channel('310')], {}, { guide: true, history: { recordCoverage: (...args) => records.push(args), flush: () => flushes++ } });
+  const programme = { title:'Show', subtitle:'Episode', channelId:'339', start:100000, end:200000 };
+  p.programmes({ '339': programme }); p.click('start-watching'); p.playing();
+  const video = p.get('video');
+  video.emit('timeupdate'); p.elapse(2000); video.currentTime = 2; video.emit('timeupdate');
+  assert.deepEqual(records.map(record => record.slice(1)), [[100000,102000]]);
+  p.elapse(2000); video.currentTime = 100; video.emit('timeupdate');
+  assert.equal(records.length, 1, 'a large media seek earns no watched time');
+  video.pause(); p.elapse(10000); video.emit('timeupdate');
+  assert.equal(records.length, 1);
+  p.click('play-toggle'); p.playing(); video.emit('timeupdate');
+  p.elapse(1000); video.currentTime += 1; video.emit('timeupdate');
+  assert.equal(records.length, 2);
+  p.selectChannel('310'); p.playing(); p.elapse(1000); video.currentTime = 1; video.emit('timeupdate');
+  assert.equal(records.length, 2, 'another channel cannot credit the previous episode');
+  p.suspend(); p.elapse(1000); video.currentTime += 1; video.emit('timeupdate');
+  assert.equal(records.length, 2);
+  assert.ok(flushes > 0, 'pause and native suspension flush partial history');
+});
+
+test('native PiP hooks report eligibility, keep theater preference independent and respect settings and Back order', async () => {
+  let open = false, enabled = true;
+  const settings = { isOpen:()=>open, close:()=>{open=false;}, isPictureInPictureEnabled:()=>enabled };
+  const p = await player([channel()], {}, { guide: true, settings });
+  const video = p.get('video'); video.videoWidth = 640; video.videoHeight = 480;
+  assert.equal(p.nativeState().playing, false);
+  p.click('start-watching'); p.playing();
+  assert.equal(p.nativeState().playing, true);
+  assert.equal(p.nativeState().videoWidth, 640);
+  enabled=false; assert.equal(p.nativeState().pictureInPictureEnabled, false);
+  open=true; p.key('g'); assert.equal(p.guide.isOpen(), false, 'settings captures other modal shortcuts');
+  assert.equal(p.back(), true); assert.equal(open,false);
+  p.click('theater'); p.key('g'); open=true; p.setPip(true);
+  assert.equal(open,false); assert.equal(p.guide.isOpen(), false);
+  assert.equal(p.body.classList.contains('picture-in-picture'), true);
+  p.setPip(false);
+  assert.equal(p.body.classList.contains('picture-in-picture'), false);
+  assert.equal(p.body.classList.contains('theater-mode'), true, 'PiP never overwrites the saved theater setting');
+  assert.equal(p.storage.get('channel-room:theater'), 'true');
+  video.pause(); assert.equal(p.nativeState().playing, false);
 });

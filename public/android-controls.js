@@ -6,7 +6,7 @@
   document.body.classList.add('android-app');
   const focusable = 'button,a[href],input,select,textarea';
   const editable = target => target?.closest('textarea,select,[contenteditable],input:not([type="range"])');
-  const currentScope = () => document.querySelector('dialog[open]') || document;
+  const currentScope = () => Array.from(document.querySelectorAll('dialog[open]')).at(-1) || document;
   const visible = element => !element.disabled && element.getAttribute('tabindex') !== '-1' && element.getClientRects().length > 0;
   const activate = element => {
     if (element?.matches('button,a[href]') && visible(element)) {

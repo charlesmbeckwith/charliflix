@@ -2,9 +2,12 @@ package com.charliflix.player;
 
 import android.app.Activity;
 import android.app.Instrumentation;
+import android.accessibilityservice.AccessibilityService;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
+import android.os.ParcelFileDescriptor;
 import android.test.InstrumentationTestCase;
 import android.view.View;
 import android.view.ViewGroup;
@@ -29,6 +32,164 @@ import java.util.concurrent.atomic.AtomicReference;
 /** Boots the shipped native runtime and real WebView; no TV feed is started. */
 @SuppressWarnings("deprecation")
 public final class PlayerSmokeTest extends InstrumentationTestCase {
+    public void testPictureInPictureSnapshotValidation() throws Exception {
+        JSONObject data = new JSONObject("{\"playing\":true,\"pictureInPictureEnabled\":true,\"videoWidth\":640,\"videoHeight\":480,\"rect\":{\"x\":200,\"y\":70,\"width\":500,\"height\":375},\"viewportWidth\":720,\"viewportHeight\":492}");
+        PipPlaybackState playing = PipPlaybackState.parse(JSONObject.quote(data.toString()));
+        assertTrue(playing.eligible);
+        assertTrue(playing.playing);
+        assertEquals(4.0 / 3, playing.aspectRatio.doubleValue(), 0.0001);
+        data.put("playing", false);
+        PipPlaybackState paused = PipPlaybackState.parse(JSONObject.quote(data.toString()));
+        assertFalse(paused.eligible);
+        assertFalse(paused.playing);
+        assertEquals("Pausing retains video geometry", playing.aspectRatio, paused.aspectRatio);
+        data.put("playing", true).put("pictureInPictureEnabled", false);
+        assertFalse(PipPlaybackState.parse(JSONObject.quote(data.toString())).eligible);
+        data.put("pictureInPictureEnabled", "true");
+        assertFalse("String booleans are not trusted", PipPlaybackState.parse(JSONObject.quote(data.toString())).eligible);
+        data.put("pictureInPictureEnabled", true).put("videoHeight", 0);
+        assertSame(PipPlaybackState.IDLE, PipPlaybackState.parse(JSONObject.quote(data.toString())));
+        for (String invalid : new String[] { null, "null", "true", "{}", "\"invalid\"", JSONObject.quote(new String(new char[8193])) }) {
+            assertSame(PipPlaybackState.IDLE, PipPlaybackState.parse(invalid));
+        }
+    }
+
+    public void testLongChannelTextStaysInsideLandscapeAndPortraitLists() throws Exception {
+        Instrumentation instrumentation = getInstrumentation();
+        Context context = instrumentation.getTargetContext();
+        String originalSize = shell("wm size");
+        java.util.regex.Matcher sizes = java.util.regex.Pattern.compile("(?:Physical|Override) size: (\\d+x\\d+)").matcher(originalSize);
+        String restoredSize = null;
+        while (sizes.find()) restoredSize = sizes.group(1);
+        assertNotNull("Original emulator display geometry available", restoredSize);
+        Activity activity = null;
+        try {
+            shell("wm size 1080x810");
+            Intent launch = new Intent().setClassName(context.getPackageName(), MainActivity.class.getName()).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            activity = instrumentation.startActivitySync(launch);
+            WebView web = awaitPlayer(activity);
+            awaitJavascript(web, "innerWidth>innerHeight", "true");
+            assertLongTextLayout(context, web, "landscape");
+            shell("wm size 540x1032");
+            awaitJavascript(web, "innerWidth<innerHeight&&innerWidth<=400", "true");
+            assertLongTextLayout(context, web, "portrait");
+        } finally {
+            if (activity != null) { Activity finished = activity; instrumentation.runOnMainSync(finished::finish); }
+            shell("wm size " + restoredSize);
+        }
+    }
+
+    private void assertLongTextLayout(Context context, WebView web, String orientation) throws Exception {
+        evaluate(web, "window.charliflixLayoutSmoke={ready:false};for(const card of document.querySelectorAll('.channel-card')){card.querySelector('.channel-name').textContent='Channel';card.querySelector('.channel-now').textContent='Show';const episode=card.querySelector('.channel-episode');if(episode){episode.hidden=false;episode.textContent='Episode'}}window.CharliflixScrollText?.refresh();requestAnimationFrame(()=>requestAnimationFrame(()=>window.charliflixLayoutSmoke.ready=true));true");
+        awaitJavascript(web, "window.charliflixLayoutSmoke.ready===true", "true");
+        evaluate(web, "window.charliflixLayoutSmoke={baseline:(()=>{const r=document.getElementById('screen').getBoundingClientRect();return {x:r.x,y:r.y,width:r.width,height:r.height}})()};for(const card of document.querySelectorAll('.channel-card')){card.querySelector('.channel-name').textContent='A Very Long Channel Name That Must Never Reach Into The Video Panel';card.querySelector('.channel-now').textContent='The Extremely Long Television Show Name And Its Special Anniversary Presentation';let episode=card.querySelector('.channel-episode');if(!episode){episode=document.createElement('span');episode.className='channel-episode';card.querySelector('.channel-copy').appendChild(episode)}episode.hidden=false;episode.textContent='Season 12 Episode 24: A Very Long Episode Name That Needs Its Own Scrolling Text Row'}window.CharliflixScrollText?.refresh();requestAnimationFrame(()=>requestAnimationFrame(()=>window.charliflixLayoutSmoke.ready=true));true");
+        awaitJavascript(web, "window.charliflixLayoutSmoke.ready===true", "true");
+        String encoded = evaluate(web, "JSON.stringify((()=>{const b=document.querySelector('.sidebar').getBoundingClientRect(),s=document.getElementById('screen').getBoundingClientRect();return {orientation:'" + orientation + "',width:innerWidth,height:innerHeight,documentWidth:document.documentElement.scrollWidth,documentHeight:document.documentElement.scrollHeight,sidebarRight:b.right,baseline:window.charliflixLayoutSmoke.baseline,screen:{x:s.x,y:s.y,width:s.width,height:s.height},cards:[...document.querySelectorAll('.channel-card')].map(card=>{const r=card.getBoundingClientRect(),p=card.closest('section').getBoundingClientRect();return {right:r.right,sectionRight:p.right}}),scrollingLabels:document.querySelectorAll('.channel-card .scroll-text.is-overflowing').length}})())");
+        String json = new JSONArray("[" + encoded + "]").getString(0);
+        JSONObject evidence = new JSONObject(json);
+        assertTrue("Long labels cannot widen the document", evidence.getDouble("documentWidth") <= evidence.getDouble("width") + 2);
+        assertTrue("Long labels cannot grow the whole document", evidence.getDouble("documentHeight") <= evidence.getDouble("height") + 2);
+        JSONArray cards = evidence.getJSONArray("cards");
+        for (int i = 0; i < cards.length(); i++) {
+            JSONObject card = cards.getJSONObject(i);
+            assertTrue("Card remains inside the sidebar", card.getDouble("right") <= evidence.getDouble("sidebarRight") + 1);
+            assertTrue("Card cannot overlap its neighboring section", card.getDouble("right") <= card.getDouble("sectionRight") + 1);
+        }
+        JSONObject before = evidence.getJSONObject("baseline"), after = evidence.getJSONObject("screen");
+        for (String key : new String[] { "x", "y", "width", "height" }) {
+            assertEquals("Long labels preserve the existing video " + key, before.getDouble(key), after.getDouble(key), 1.0);
+        }
+        assertTrue("Overflowing labels activate bounded scrolling", evidence.getInt("scrollingLabels") > 0);
+        File directory = context.getExternalFilesDir(null);
+        assertNotNull("Layout evidence directory available", directory);
+        Files.write(new File(directory, "charliflix-layout-" + orientation + ".json").toPath(), json.getBytes(StandardCharsets.UTF_8));
+        Bitmap image = getInstrumentation().getUiAutomation().takeScreenshot();
+        assertNotNull(image);
+        try (FileOutputStream output = new FileOutputStream(new File(directory, "charliflix-layout-" + orientation + ".png"))) {
+            assertTrue(image.compress(Bitmap.CompressFormat.PNG, 100, output));
+        } finally { image.recycle(); }
+    }
+
+    private String shell(String command) throws Exception {
+        try (ParcelFileDescriptor descriptor = getInstrumentation().getUiAutomation().executeShellCommand(command);
+             InputStream input = new ParcelFileDescriptor.AutoCloseInputStream(descriptor);
+             ByteArrayOutputStream output = new ByteArrayOutputStream()) {
+            byte[] buffer = new byte[1024];
+            int length;
+            while ((length = input.read(buffer)) != -1) { assertTrue(output.size() + length < 16384); output.write(buffer, 0, length); }
+            return new String(output.toByteArray(), StandardCharsets.UTF_8);
+        }
+    }
+
+    public void testPictureInPictureLifecycleAndOrdinaryBackgroundSuspension() throws Exception {
+        Instrumentation instrumentation = getInstrumentation();
+        Context context = instrumentation.getTargetContext();
+        assertTrue("Disposable emulator supports PiP", context.getPackageManager().hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE));
+        Intent launch = new Intent().setClassName(context.getPackageName(), MainActivity.class.getName()).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        Activity activity = instrumentation.startActivitySync(launch);
+        WebView web = awaitPlayer(activity);
+        try {
+            // Synthetic eligibility exercises actual Android PiP and lifecycle;
+            // no upstream TV media or claimed real-stream playback is involved.
+            evaluate(web, "window.charliflixPipSmoke={eligible:true,suspends:0};window.charliflixAndroidState=()=>({playing:window.charliflixPipSmoke.eligible,pictureInPictureEnabled:true,videoWidth:640,videoHeight:480,rect:{x:100,y:70,width:500,height:375},viewportWidth:innerWidth,viewportHeight:innerHeight});const nativeSuspend=window.charliflixSuspend;window.charliflixSuspend=()=>{window.charliflixPipSmoke.suspends++;nativeSuspend?.()};true");
+            awaitNativeFlag(activity, "pipEligible", true);
+            assertTrue("Home gesture accepted", instrumentation.getUiAutomation().performGlobalAction(AccessibilityService.GLOBAL_ACTION_HOME));
+            awaitPictureInPicture(activity, true);
+            assertEquals("PiP invokes the video-only layout hook", "true", evaluate(web, "document.body.classList.contains('picture-in-picture')"));
+            evaluate(web, "setTimeout(()=>window.charliflixPipSmoke.timer=true,25);true");
+            awaitJavascript(web, "window.charliflixPipSmoke.timer===true", "true");
+            assertEquals("Entering PiP must not suspend playback", "0", evaluate(web, "window.charliflixPipSmoke.suspends"));
+
+            instrumentation.runOnMainSync(() -> context.startActivity(launch));
+            awaitPictureInPicture(activity, false);
+            awaitJavascript(web, "document.body.classList.contains('picture-in-picture')", "false");
+            assertFalse("Single-task reentry preserves the player Activity", activity.isDestroyed());
+            evaluate(web, "window.charliflixPipSmoke.eligible=false;true");
+            awaitNativeFlag(activity, "pipEligible", false);
+            assertTrue("Home gesture accepted while idle", instrumentation.getUiAutomation().performGlobalAction(AccessibilityService.GLOBAL_ACTION_HOME));
+            awaitNativeFlag(activity, "stopped", true);
+            assertFalse("Paused playback stays out of PiP", activity.isInPictureInPictureMode());
+            instrumentation.runOnMainSync(() -> context.startActivity(launch));
+            awaitNativeFlag(activity, "stopped", false);
+            assertEquals("Ordinary backgrounding suspends playback once", "1", evaluate(web, "window.charliflixPipSmoke.suspends"));
+        } finally { instrumentation.runOnMainSync(activity::finish); }
+    }
+
+    private void awaitNativeFlag(Activity activity, String name, boolean expected) throws Exception {
+        java.lang.reflect.Field field = MainActivity.class.getDeclaredField(name);
+        field.setAccessible(true);
+        long deadline = android.os.SystemClock.elapsedRealtime() + 10000;
+        do {
+            AtomicReference<Boolean> current = new AtomicReference<>();
+            getInstrumentation().runOnMainSync(() -> {
+                try { current.set(field.getBoolean(activity)); } catch (IllegalAccessException invalid) { throw new AssertionError(invalid); }
+            });
+            if (current.get() == expected) return;
+            Thread.sleep(100);
+        } while (android.os.SystemClock.elapsedRealtime() < deadline);
+        fail("Native flag " + name + " did not become " + expected);
+    }
+
+    private void awaitPictureInPicture(Activity activity, boolean expected) throws Exception {
+        long deadline = android.os.SystemClock.elapsedRealtime() + 10000;
+        do {
+            AtomicReference<Boolean> current = new AtomicReference<>();
+            getInstrumentation().runOnMainSync(() -> current.set(activity.isInPictureInPictureMode()));
+            if (current.get() == expected) return;
+            Thread.sleep(100);
+        } while (android.os.SystemClock.elapsedRealtime() < deadline);
+        fail("Activity PiP mode did not become " + expected);
+    }
+
+    private void awaitJavascript(WebView web, String script, String expected) throws Exception {
+        long deadline = android.os.SystemClock.elapsedRealtime() + 5000;
+        do {
+            if (expected.equals(evaluate(web, script))) return;
+            Thread.sleep(75);
+        } while (android.os.SystemClock.elapsedRealtime() < deadline);
+        assertEquals(expected, evaluate(web, script));
+    }
+
     public void testRemoteNavigationBoundaries() throws Exception {
         assertTrue(policy("isArchiveVideo", "https://archive.org/download/example/episode.mp4"));
         assertTrue(policy("isArchiveVideo", "https://ia800000.us.archive.org/12/items/example/episode.mp4"));
@@ -88,6 +249,8 @@ public final class PlayerSmokeTest extends InstrumentationTestCase {
         assertTrue("WebView access controls are enabled", secure.get());
         assertEquals("\"127.0.0.1\"", evaluate(web, "location.hostname"));
         saveUiEvidence(context, web);
+        assertEquals("Theme and watched history save before recreation", "true", evaluate(web,
+                "window.CharliflixSettings.setTheme('purple')&&window.CharliflixHistory.setWatched({title:'Fixture Show',subtitle:'Fixture Episode',episode:'S01E01'}).ok"));
 
         Instrumentation.ActivityMonitor monitor = instrumentation.addMonitor(MainActivity.class.getName(), null, false);
         Activity original = activity;
@@ -96,6 +259,10 @@ public final class PlayerSmokeTest extends InstrumentationTestCase {
         instrumentation.removeMonitor(monitor);
         assertNotNull("Activity recreated", recreated);
         WebView recreatedWeb = awaitPlayer(recreated);
+        assertEquals("Theme selection survives Activity recreation", "\"purple\"", evaluate(recreatedWeb, "window.CharliflixSettings.getTheme()"));
+        assertEquals("The saved theme is applied to the replacement document", "\"purple\"", evaluate(recreatedWeb, "document.documentElement.dataset.theme"));
+        assertEquals("Watched history survives Activity recreation", "true", evaluate(recreatedWeb,
+                "window.CharliflixHistory.isWatched({title:'Fixture Show',subtitle:'Fixture Episode',episode:'S01E01'})"));
         evaluate(recreatedWeb, "setTimeout(()=>document.body.dataset.charliflixSmokeTimer='fired',25);true");
         long timerDeadline = android.os.SystemClock.elapsedRealtime() + 3000;
         String timerState;
@@ -108,6 +275,8 @@ public final class PlayerSmokeTest extends InstrumentationTestCase {
         JSONObject after = new JSONObject(get(origin + "/api/health"));
         assertEquals("Recreation reuses the same backend process", health.getLong("pid"), after.getLong("pid"));
         assertEquals("Recreation preserves the origin and preferences", origin, awaitReady(readyFile).getString("origin"));
+        assertEquals("Test restores the default theme and clean fixture history", "true", evaluate(recreatedWeb,
+                "window.CharliflixSettings.setTheme('teal')&&window.CharliflixHistory.clear().ok"));
         Activity finished = recreated;
         instrumentation.runOnMainSync(finished::finish);
     }

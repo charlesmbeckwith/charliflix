@@ -6,7 +6,7 @@ Actual launch, sound, playback and controller behavior on the Nova still need de
 
 ## Install and update
 
-1. On the Nova, open [Charliflix Releases](https://github.com/charlesmbeckwith/charliflix/releases/latest) and download **Charliflix-v0.3.11-Android-arm64.apk**.
+1. On the Nova, open [Charliflix Releases](https://github.com/charlesmbeckwith/charliflix/releases/latest) and download **Charliflix-v0.3.12-Android-arm64.apk**.
 2. Open the downloaded APK. If Android asks, allow this browser or file manager to install the downloaded app, then approve installation.
 3. Open **Charliflix** from the launcher and choose a channel.
 
@@ -26,7 +26,11 @@ For future versions, use **Check for updates** in Charliflix, download the relea
 
 Touch controls remain available. Feed selection and volume use their normal control behavior. The lineup scrolls independently from the video.
 
-Android pauses playback and browser timers when Charliflix goes into the background. **Keep it in the foreground for scheduled channel changes.** It does not wake the device or start itself. On returning, tap Play; an expired archive block resumes at the current rotation rather than replaying the missed block. The existing five-minute late-start rule applies to scheduled switches after resuming.
+While video plays, pressing Home or switching apps opens Android's floating picture-in-picture player on supported devices. PiP starts enabled; Settings can disable it, and Android's app permissions must allow PiP. The floating player has a play/pause action. Returning to Charliflix restores the ordinary layout without overwriting the saved theater setting.
+
+Closing PiP, or fully backgrounding without it, pauses playback and browser timers. **Keep Charliflix visible in the app or its PiP window for scheduled channel changes.** It does not wake the device or start itself. On returning after suspension, tap Play; an expired archive block resumes at the current rotation rather than replaying the missed block. The existing five-minute late-start rule applies to scheduled switches after resuming.
+
+Settings includes six saved accent colors and watched-history management. Identified episodes can be marked watched from guide details (long press), and roughly 80% unique playback coverage marks them automatically. History stays in this app's WebView storage across normal APK updates with the same package and signer. Install over the existing app; uninstalling or clearing app data removes history and preferences. Reference guide listings may differ from the feed; unidentified archive blocks are not treated as individual episodes.
 
 Adult Swim Archive uses the public recording list from [Spelunkr channel 54](https://spelunkr.tv/) and **Charliflix's own rotation**. Its timing differs from Spelunkr's player. Current titles, approximately 24 hours of archive listings and scheduled switches describe that rotation. Source availability and technical checks are not rights clearance.
 
@@ -85,6 +89,6 @@ This creates the separate `com.charliflix.player.debug` app. Never distribute it
 
 ## Verification limits
 
-The [Android workflow](../.github/workflows/android.yml) is configured to build and lint the signed ARM64 APK, audit its contents, and run an x86-64 debug edition in an Android 13 emulator. Its smoke test checks native Node startup, local HTTP assets, WebView loading, navigation policy and activity recreation. A successful workflow is recorded in the release verification JSON; inspect that result before claiming a particular release passed.
+The [Android workflow](../.github/workflows/android.yml) is configured to build and lint the signed ARM64 APK, audit its contents, and run an x86-64 debug edition in an Android 13 emulator. Tests check native Node startup, local HTTP assets, WebView loading, navigation policy, activity recreation, PiP lifecycle and long-text bounds in landscape and portrait. Screenshots and layout JSON are uploaded as CI evidence. A successful workflow is recorded in the release verification JSON; inspect that result before claiming a particular release passed. The PiP lifecycle test uses a controlled eligibility fixture, not an actual TV feed.
 
 The emulator check does not test actual ARM64 Nova playback, physical buttons, audio output or sustained streaming. Those remain device checks. Independent archive media inspection verified H.264 video with AAC audio; feed availability can still change after a release.

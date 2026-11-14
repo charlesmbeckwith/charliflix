@@ -86,7 +86,7 @@ test('listing identity requires the exact station name and number instead of gue
   assert.equal(parseGuide(data, channels).channels[2].status, 'empty', 'ambiguous duplicate listings are not selected arbitrarily');
 });
 
-test('programmes are bounded, sorted and deduplicated while provider image and episode data are omitted', () => {
+test('programmes are bounded, sorted and deduplicated while images and unrecognized episode data are omitted', () => {
   const data = fixture();
   const first = data.channels[0].programmes[0];
   data.channels[0].programmes = [data.channels[0].programmes[1],
@@ -107,6 +107,28 @@ test('programmes are bounded, sorted and deduplicated while provider image and e
   const long = parseGuide(data, channels).channels[0].programmes[0];
   assert.equal(long.title.length, 200);
   assert.equal(long.subtitle.length, 300);
+});
+
+test('episode names, canonical numbers and optional descriptions remain bounded plain data', () => {
+  const data = fixture();
+  const original = data.channels[0].programmes[0];
+  data.channels[0].programmes = [{ ...original, subtitle: '  Episode\nname  ', episode: 's004e0019', description: '  A\nshort description.  ' }];
+  const normalized = parseGuide(data, channels).channels[0].programmes[0];
+  assert.equal(normalized.subtitle, 'Episode name');
+  assert.equal(normalized.episode, 'S04E19');
+  assert.equal(normalized.seasonNumber, 4);
+  assert.equal(normalized.episodeNumber, 19);
+  assert.equal(normalized.description, 'A short description.');
+  for (const value of ['S01E03-E01', 'S1234E01', 'http://elsewhere/episode', {}, 45]) {
+    data.channels[0].programmes[0].episode = value;
+    assert.equal(parseGuide(data, channels).channels[0].programmes[0].episode, undefined);
+  }
+  data.channels[0].programmes[0].episode = 'S01E03-E04';
+  data.channels[0].programmes[0].description = 'x'.repeat(3000);
+  const pair = parseGuide(data, channels).channels[0].programmes[0];
+  assert.equal(pair.episode, 'S01E03-E04');
+  assert.equal(pair.episodeNumber, undefined, 'an episode pair is not mislabeled as one numbered episode');
+  assert.equal(pair.description.length, 2000);
 });
 
 test('an actual empty schedule is distinct from an invalid response or unverified affiliate', async t => {

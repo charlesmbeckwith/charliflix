@@ -10,6 +10,7 @@
     const channels = options.channels.map(channel => ({ id: String(channel.id), name: options.channelName(channel) }));
     const channelMap = new Map(channels.map(channel => [channel.id, channel]));
     const model = window.CharliflixGuideModel;
+    const history = options.history || window.CharliflixHistory;
     const locks = window.navigator?.locks;
     let storage;
     try { storage = window.localStorage; } catch { /* Scheduling reports unavailable below. */ }
@@ -24,6 +25,7 @@
     let windowStart = Math.floor(Date.now() / (30 * MINUTE)) * 30 * MINUTE;
     let pending = null, opener = null;
     let scheduleTimer, refreshTimer, clockTimer, toastTimer;
+    const pressTimers = new Set();
     const controller = new AbortController();
 
     const node = (tag, className, text) => {
@@ -36,6 +38,100 @@
     const range = programme => `${time.format(programme.start)}–${time.format(programme.end)}`;
     const rowFor = id => data?.channels?.find(row => String(row.id) === id);
     const currentFor = id => rowFor(id)?.programmes?.find(programme => programme.start <= Date.now() && programme.end > Date.now());
+    const episodeLabel = programme => [programme?.subtitle, programme?.episode].filter(Boolean).join(' · ');
+    const watched = programme => Boolean(programme && history?.isWatched(programme));
+    const details = node('dialog', 'episode-dialog');
+    details.id = 'episode-dialog'; details.setAttribute('aria-labelledby', 'episode-title');
+    const detailsHeader = node('div', 'episode-header');
+    const detailsTitle = node('h2', 'episode-title'); detailsTitle.id = 'episode-title';
+    const detailsClose = node('button', 'icon-button episode-close', '✕');
+    detailsClose.id = 'close-episode'; detailsClose.type = 'button'; detailsClose.setAttribute('aria-label', 'Close episode details');
+    detailsHeader.append(detailsTitle, detailsClose);
+    const detailsEpisode = node('p', 'episode-subtitle'); detailsEpisode.id = 'episode-subtitle';
+    const detailsTime = node('p', 'episode-time');
+    const detailsDescription = node('p', 'episode-description'); detailsDescription.id = 'episode-description';
+    const detailsNote = node('p', 'episode-note');
+    const detailsActions = node('div', 'episode-actions');
+    const detailsWatched = node('button', 'secondary-button'); detailsWatched.id = 'episode-watched'; detailsWatched.type = 'button';
+    const detailsFeedback = node('p', 'episode-feedback'); detailsFeedback.id = 'episode-feedback'; detailsFeedback.setAttribute('role', 'status');
+    detailsActions.append(detailsWatched); details.append(detailsHeader, detailsEpisode, detailsTime, detailsDescription, detailsNote, detailsActions, detailsFeedback);
+    document.body.append(details);
+    let detailsProgramme = null, detailsKey = null;
+
+    function updateDetails() {
+      if (!detailsProgramme) return;
+      detailsTitle.textContent = detailsProgramme.title;
+      detailsEpisode.textContent = episodeLabel(detailsProgramme) || 'Episode information unavailable';
+      detailsTime.textContent = `${channelMap.get(detailsProgramme.channelId)?.name || ''} · ${when(detailsProgramme.start)}–${time.format(detailsProgramme.end)}`;
+      detailsDescription.textContent = detailsProgramme.description || 'No description is available from this guide.';
+      const trackable = Boolean(history?.canTrack(detailsProgramme));
+      detailsWatched.hidden = !trackable;
+      detailsWatched.textContent = watched(detailsProgramme) ? '✓ Watched · Mark unwatched' : 'Mark as watched';
+      detailsWatched.setAttribute('aria-pressed', String(watched(detailsProgramme)));
+      const note = rowFor(detailsProgramme.channelId)?.scheduleNote || 'Eastern reference listings may differ from the actual feed.';
+      detailsNote.textContent = `${note}${trackable ? '' : ' · Watched history needs an identified episode.'}`;
+    }
+
+    function openDetails(programme) {
+      if (disposed) return;
+      cancelPresses();
+      detailsProgramme = { ...programme };
+      detailsKey = `${programme.channelId}:${programme.start}`;
+      detailsFeedback.textContent = '';
+      updateDetails();
+      if (!details.open) details.showModal();
+      detailsClose.focus();
+    }
+
+    function closeDetails() {
+      if (!details.open) return;
+      details.close();
+      if (dialog.open && detailsKey) Array.from($('guide-grid').querySelectorAll('[data-programme-key]')).find(button => button.dataset.programmeKey === detailsKey)?.focus({ preventScroll: true });
+      detailsProgramme = null; detailsKey = null;
+    }
+    detailsClose.addEventListener('click', closeDetails);
+    details.addEventListener('cancel', event => { event.preventDefault(); event.stopPropagation(); closeDetails(); });
+    details.addEventListener('keydown', event => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); closeDetails(); } });
+    details.addEventListener('click', event => { if (event.target === details) { const box = details.getBoundingClientRect(); if (event.clientX < box.left || event.clientX > box.right || event.clientY < box.top || event.clientY > box.bottom) closeDetails(); } });
+    detailsWatched.addEventListener('click', () => {
+      if (!detailsProgramme || !history?.canTrack(detailsProgramme)) return;
+      const result = history.setWatched(detailsProgramme, !watched(detailsProgramme));
+      detailsFeedback.textContent = result === false || result?.ok === false ? 'The watched status could not be saved. Check that app storage is available.' : '';
+      updateDetails();
+    });
+
+    function cancelPresses() { for (const timer of pressTimers) clearTimeout(timer); pressTimers.clear(); }
+    function programmeInteractions(button, programme) {
+      let timer = null, origin = null, suppressClickUntil = 0;
+      const cancel = () => { clearTimeout(timer); pressTimers.delete(timer); timer = null; origin = null; };
+      button.addEventListener('pointerdown', event => {
+        cancel();
+        if (event.isPrimary === false || (event.button !== undefined && event.button !== 0)) return;
+        suppressClickUntil = 0;
+        origin = { x: event.clientX, y: event.clientY };
+        timer = setTimeout(() => {
+          pressTimers.delete(timer); timer = null;
+          suppressClickUntil = Date.now() + 1500;
+          openDetails(programme);
+        }, 600);
+        pressTimers.add(timer);
+      });
+      button.addEventListener('pointermove', event => { if (origin && Math.hypot(event.clientX - origin.x, event.clientY - origin.y) > 10) cancel(); });
+      button.addEventListener('pointerup', () => { if (suppressClickUntil) suppressClickUntil = Date.now() + 1500; cancel(); });
+      for (const name of ['pointercancel', 'pointerleave', 'lostpointercapture']) button.addEventListener(name, cancel);
+      button.addEventListener('contextmenu', event => { event.preventDefault(); suppressClickUntil = Date.now() + 1500; openDetails(programme); });
+      button.addEventListener('keydown', event => {
+        if ((!event.altKey && !event.ctrlKey && !event.metaKey && event.key?.toLowerCase() === 'i') || (event.shiftKey && event.key === 'F10')) {
+          event.preventDefault(); event.stopPropagation(); openDetails(programme);
+        }
+      });
+      button.addEventListener('click', event => {
+        cancel();
+        if (Date.now() < suppressClickUntil) { event.preventDefault(); event.stopPropagation(); return; }
+        void choose(programme);
+      });
+    }
+    $('guide-scroll').addEventListener('scroll', cancelPresses);
 
     function notify(message) {
       clearTimeout(toastTimer);
@@ -48,7 +144,7 @@
     const scheduler = model.createScheduler({
       channelIds: channels.map(channel => channel.id), storage,
       onTune(item) {
-        close();
+        close(true);
         options.onTune(item.channelId);
         notify(`Scheduled switch: ${channelMap.get(item.channelId)?.name} · ${item.title}`);
       },
@@ -83,15 +179,21 @@
     }
 
     function updateNowLabels() {
+      const current = Object.create(null);
       for (const channel of channels) {
         const label = $(`channel-now-${channel.id}`);
         if (!label) continue;
         const programme = currentFor(channel.id);
+        current[channel.id] = programme || null;
         const row = rowFor(channel.id);
         const text = programme?.title || (!data ? 'Loading guide…' : row?.status === 'unmapped' ? 'Guide not matched' : 'Listings unavailable');
         if (label.textContent !== text) label.textContent = text;
         label.title = programme ? `${programme.title} · ${range(programme)} · ${row?.scheduleNote || 'Eastern reference schedule'}` : row?.reason || text;
+        const episode = $(`channel-episode-${channel.id}`), badge = $(`channel-watched-${channel.id}`);
+        if (episode) { const text = episodeLabel(programme); if(episode.textContent !== text) episode.textContent = text; episode.hidden = !text; }
+        if (badge) { badge.hidden = !watched(programme); badge.title = 'This episode has already been watched'; }
       }
+      options.onCurrentProgrammes?.(current);
     }
 
     function renderScheduled() {
@@ -129,7 +231,7 @@
     async function choose(programme) {
       const now = Date.now();
       if (programme.start <= now && programme.end > now) {
-        close(); options.onTune(programme.channelId); return;
+        close(true); options.onTune(programme.channelId); return;
       }
       if (programme.end <= now) return;
       if (!schedulingAvailable) { notify('Scheduling is unavailable in this browser. Use the desktop app or a current browser.'); return; }
@@ -145,6 +247,7 @@
     }
 
     function renderGrid() {
+      cancelPresses();
       const grid = $('guide-grid');
       const focusKey = document.activeElement?.dataset?.programmeKey;
       const focusChannel = document.activeElement?.dataset?.guideChannel;
@@ -165,7 +268,7 @@
         const tune = node('button', 'guide-channel-button', channel.name);
         tune.dataset.guideChannel = channel.id;
         tune.type = 'button'; tune.setAttribute('aria-label', `Watch ${channel.name}`);
-        tune.addEventListener('click', () => { close(); options.onTune(channel.id); });
+        tune.addEventListener('click', () => { close(true); options.onTune(channel.id); });
         const note = node('span', 'guide-channel-note', row?.id === '1054' ? 'Archive rotation' : row?.status === 'unmapped' ? 'Affiliate unknown' : 'Eastern guide');
         note.title = row?.scheduleNote || '';
         channelCell.append(tune, note);
@@ -180,16 +283,20 @@
           const live = programme.start <= now && programme.end > now;
           const past = programme.end <= now;
           const key = `${channel.id}:${programme.start}`;
-          const button = node('button', `guide-programme${live ? ' is-live' : ''}${scheduled ? ' is-scheduled' : ''}`);
+          const programmeData = { ...programme, channelId: channel.id };
+          const seen = watched(programmeData);
+          const button = node('button', `guide-programme${live ? ' is-live' : ''}${scheduled ? ' is-scheduled' : ''}${seen ? ' is-watched' : ''}`);
           button.type = 'button'; button.dataset.programmeKey = key;
-          button.disabled = past || (!live && !schedulingAvailable);
           button.style.gridColumn = `${Math.max(1, Math.floor((programme.start - windowStart) / MINUTE) + 1)} / ${Math.min(181, Math.ceil((programme.end - windowStart) / MINUTE) + 1)}`;
           const action = past ? 'Ended' : live ? 'Watch now' : scheduled ? 'Scheduled ✓' : 'Schedule';
-          button.setAttribute('aria-label', `${programme.title}, ${when(programme.start)} to ${time.format(programme.end)}, ${channel.name}, ${action}`);
+          button.setAttribute('aria-label', `${programme.title}${episodeLabel(programme) ? ', ' + episodeLabel(programme) : ''}, ${when(programme.start)} to ${time.format(programme.end)}, ${channel.name}, ${action}${seen ? ', Already watched' : ''}. Hold or press I for episode details.`);
           button.setAttribute('aria-pressed', String(scheduled));
-          button.title = `${programme.title}${programme.subtitle ? '\n' + programme.subtitle : ''}\n${when(programme.start)}–${time.format(programme.end)} · ${action}${row?.id === '1054' ? '\n' + row.scheduleNote : ''}`;
-          button.append(node('strong', 'guide-programme-title', programme.title), node('span', 'guide-programme-time', range(programme)), node('span', 'guide-programme-action', action));
-          button.addEventListener('click', () => { void choose({ ...programme, channelId: channel.id }); });
+          button.title = `${programme.title}${episodeLabel(programme) ? '\n' + episodeLabel(programme) : ''}\n${when(programme.start)}–${time.format(programme.end)} · ${action}${row?.id === '1054' ? '\n' + row.scheduleNote : ''}\nHold or press I for details`;
+          button.append(node('strong', 'guide-programme-title', programme.title));
+          if (episodeLabel(programme)) button.append(node('span', 'guide-programme-episode', episodeLabel(programme)));
+          if (seen) { const badge = node('span', 'watched-badge', '✓ Watched'); badge.setAttribute('aria-label', 'Episode watched'); button.append(badge); }
+          button.append(node('span', 'guide-programme-time', range(programme)), node('span', 'guide-programme-action', action));
+          programmeInteractions(button, programmeData);
           track.append(button);
         }
         if (now >= windowStart && now < windowStart + WINDOW) {
@@ -243,10 +350,10 @@
       dialog.showModal(); render();
       void transact(() => ({ ok: true })); void refresh();
     }
-    function close() { if (dialog.open) { dialog.close(); opener?.focus?.({ preventScroll: true }); } }
+    function close(all = false) { cancelPresses(); if (details.open) { closeDetails(); if (!all) return; } if (dialog.open) { dialog.close(); opener?.focus?.({ preventScroll: true }); } }
 
     for (const button of document.querySelectorAll('[data-open-guide]')) { button.disabled = false; button.addEventListener('click', () => { void open(); }); }
-    $('close-guide').addEventListener('click', close);
+    $('close-guide').addEventListener('click', () => close());
     dialog.addEventListener('cancel', event => { event.preventDefault(); close(); });
     dialog.addEventListener('click', event => { if (event.target === dialog) { const box = dialog.getBoundingClientRect(); if (event.clientX < box.left || event.clientX > box.right || event.clientY < box.top || event.clientY > box.bottom) close(); } });
     $('guide-now').addEventListener('click', () => { windowStart = Math.floor(Date.now() / (30 * MINUTE)) * 30 * MINUTE; renderGrid(); });
@@ -270,14 +377,15 @@
       else if (result?.code !== 'storage') { setConflict(null); notify('That show can no longer be scheduled. Refresh the listings and try again.'); }
     });
     const wake = () => { void transact(() => scheduler.tick()); updateNowLabels(); if (dialog.open) renderGrid(); if (!document.hidden) void refresh(); };
+    const unsubscribeHistory = history?.subscribe(() => { if (!disposed) { updateNowLabels(); if (dialog.open) renderGrid(); updateDetails(); } });
     document.addEventListener('visibilitychange', wake);
     window.addEventListener('pageshow', wake);
     window.addEventListener('storage', event => { if (event.key === model.STORAGE_KEY || event.key === null) void transact(() => ({ ok: true })); });
     refreshTimer = setInterval(() => { void refresh(); }, REFRESH);
     clockTimer = setInterval(() => { updateNowLabels(); if (dialog.open) renderGrid(); if ((data?.status !== 'ready' || data?.partial) && !document.hidden) void refresh(); }, 30_000);
     render(); void refresh(); void transact(() => scheduler.tick()); armSchedule();
-    return { open, close, isOpen: () => dialog.open, toggle: () => dialog.open ? close() : void open(), destroy() {
-      disposed = true; controller.abort(); clearTimeout(scheduleTimer); clearTimeout(toastTimer); clearInterval(refreshTimer); clearInterval(clockTimer);
+    return { open, close, isOpen: () => dialog.open || details.open, toggle: () => dialog.open ? close() : void open(), destroy() {
+      disposed = true; controller.abort(); clearTimeout(scheduleTimer); clearTimeout(toastTimer); clearInterval(refreshTimer); clearInterval(clockTimer); cancelPresses(); unsubscribeHistory?.(); details.close(); details.remove?.();
     } };
   }
   window.CharliflixGuide = { create };

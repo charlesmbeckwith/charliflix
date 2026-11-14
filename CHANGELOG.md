@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.12
+
+- Added Android picture-in-picture: playing video can remain visible when pressing Home or switching apps, with a native play/pause action and an optional setting. Fully hidden or dismissed playback still pauses.
+- Fixed channel cards expanding over the player or neighboring portrait column. Long channel, show and episode text scrolls inside bounded rows, preserving the normal video surface size.
+- Added episode names and season/episode numbers beneath show titles, plus guide details on long press, right-click, I or Shift+F10. Descriptions appear when provided by the guide.
+- Added persistent local watched-episode history and badges, manual mark/unmark controls and automatic marks after roughly 80% unique playback coverage. Pauses, seeks and unplayed background time do not count; unidentified archive blocks are not inferred as episodes.
+- Added Settings with teal, blue, purple, pink, orange and white accents, the Android PiP preference and confirmed history clearing. History and settings survive normal app updates.
+- Added Android emulator PiP lifecycle, storage-recreation and portrait/landscape long-text layout checks, alongside playback/history regressions.
+
 ## 0.3.11
 
 - Fixed a slow archive load immediately showing a playback error after video had started. First playback now starts a fresh progress deadline.

@@ -71,6 +71,10 @@ jobs:
           mkdir -p android-smoke
           adb pull /sdcard/Android/data/com.charliflix.player.debug/files/charliflix-android-smoke.png android-smoke/
           adb pull /sdcard/Android/data/com.charliflix.player.debug/files/charliflix-android-smoke.json android-smoke/
+          adb pull /sdcard/Android/data/com.charliflix.player.debug/files/charliflix-layout-landscape.png android-smoke/
+          adb pull /sdcard/Android/data/com.charliflix.player.debug/files/charliflix-layout-landscape.json android-smoke/
+          adb pull /sdcard/Android/data/com.charliflix.player.debug/files/charliflix-layout-portrait.png android-smoke/
+          adb pull /sdcard/Android/data/com.charliflix.player.debug/files/charliflix-layout-portrait.json android-smoke/
           adb emu kill
       - name: Stage Android release assets
         run: |

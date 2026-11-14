@@ -12,6 +12,18 @@ const base = Date.parse('2026-10-19T12:00:00Z');
 const minute = 60_000;
 const programme = (channelId = '339', start = base + 30 * minute) => ({ id: `${channelId}:${start}`, channelId, start, end: start + 30 * minute, title: `Programme ${channelId}` });
 const listings = () => ({ status: 'ready', from: base - 60 * minute, until: base + 10 * 60 * minute, channels: ['339', '310'].map(id => ({ id, status: 'ready', programmes: [programme(id, base - 15 * minute), programme(id)] })) });
+const programmeButton = (player, channelId = '339', start = programme().start) => player.get('guide-grid').querySelectorAll('[data-programme-key]').find(button => button.dataset.programmeKey === `${channelId}:${start}`);
+
+function historyFixture() {
+  const seen = new Set(), listeners = new Set();
+  return {
+    canTrack: item => Boolean(item?.subtitle || item?.episode),
+    isWatched: item => seen.has(item?.episode || item?.subtitle),
+    setWatched(item, value) { const key = item.episode || item.subtitle; if (value) seen.add(key); else seen.delete(key); for (const listener of listeners) listener(); return { ok: true }; },
+    subscribe(listener) { listeners.add(listener); return () => listeners.delete(listener); },
+    listeners,
+  };
+}
 
 // Exercise the real UI and model together with observable DOM/timer/storage
 // adapters. A shared exclusive lock queue models two same-origin browser tabs.
@@ -31,19 +43,22 @@ function world(initial = []) {
   } };
   const settle = async () => { await new Promise(setImmediate); await tail; await new Promise(setImmediate); };
 
-  async function player({ supported = true, response = listings(), channels = [{ id: '339', name: 'Cartoon Network' }, { id: '310', name: 'Comedy Central' }] } = {}) {
+  async function player({ supported = true, response = listings(), history, channels = [{ id: '339', name: 'Cartoon Network' }, { id: '310', name: 'Comedy Central' }] } = {}) {
     const nodes = new Map(), windowListeners = {}, documentListeners = {}, tuned = [], fetches = [];
+    const currentProgrammes = [];
     const descendants = root => root.children.flatMap(child => [child, ...descendants(child)]);
     const matches = (element, selector) => selector === '[data-programme-key]' ? element.dataset.programmeKey !== undefined : selector === '[data-guide-channel]' ? element.dataset.guideChannel !== undefined : selector.startsWith('.') && element.className.split(/\s+/).includes(selector.slice(1));
     class Element {
       constructor(id = '') { this.id = id; this.children = []; this.listeners = {}; this.dataset = {}; this.style = {}; this.attributes = {}; this.className = ''; this.hidden = false; this.disabled = false; this.open = false; this.textContent = ''; }
+      get id() { return this._id; }
+      set id(value) { this._id = value; if (value) nodes.set(value, this); }
       append(...children) { this.children.push(...children); }
       replaceChildren(...children) { this.children = children; }
       setAttribute(name, value) { this.attributes[name] = value; }
       querySelectorAll(selector) { return descendants(this).filter(element => matches(element, selector)); }
       contains(element) { return element === this || descendants(this).includes(element); }
       addEventListener(name, callback) { (this.listeners[name] ??= []).push(callback); }
-      emit(name, extra = {}) { for (const callback of this.listeners[name] || []) callback({ target: this, preventDefault() {}, ...extra }); }
+      emit(name, extra = {}) { const event = { target: this, preventDefault() { this.defaultPrevented = true; }, stopPropagation() { this.propagationStopped = true; }, ...extra }; for (const callback of this.listeners[name] || []) callback(event); return event; }
       focus() { document.activeElement = this; }
       showModal() { this.open = true; }
       close() { this.open = false; }
@@ -52,7 +67,7 @@ function world(initial = []) {
     const get = id => { if (!nodes.has(id)) nodes.set(id, new Element(id)); return nodes.get(id); };
     get('guide-conflict').append(get('guide-conflict-message'), get('guide-replace'), get('guide-keep'));
     const document = {
-      activeElement: get('open-guide'), hidden: false,
+      body: get('body'), activeElement: get('open-guide'), hidden: false,
       getElementById: get, createElement: () => new Element(),
       querySelectorAll: selector => selector === '[data-open-guide]' ? [get('open-guide'), get('open-guide-player')] : [],
       addEventListener(name, callback) { (documentListeners[name] ??= []).push(callback); },
@@ -77,10 +92,10 @@ function world(initial = []) {
     context.window = context;
     vm.runInContext(modelSource, context, { filename: 'public/guide-model.js' });
     vm.runInContext(uiSource, context, { filename: 'public/guide-ui.js' });
-    const controller = context.CharliflixGuide.create({ channels, channelName: channel => channel.name, onTune: channelId => tuned.push({ channelId, locked: activeLocks > 0, remaining: queue() }) });
+    const controller = context.CharliflixGuide.create({ channels, history, channelName: channel => channel.name, onCurrentProgrammes: value => currentProgrammes.push(value), onTune: channelId => tuned.push({ channelId, locked: activeLocks > 0, remaining: queue() }) });
     await settle();
     return {
-      get, document, controller, tuned, fetches,
+      get, document, controller, tuned, fetches, currentProgrammes,
       async open() { await controller.open(); await settle(); },
       async clickProgramme(channelId, start) {
         const button = get('guide-grid').querySelectorAll('[data-programme-key]').find(item => item.dataset.programmeKey === `${channelId}:${start}`);
@@ -136,6 +151,106 @@ test('guide scheduling requires explicit conflict replacement and a persisted de
   assert.ok(w.writes.every(write => write.locked));
   assert.ok(w.lockCalls.every(name => name === STORAGE_KEY));
   p.controller.destroy();
+});
+
+test('episode names appear below show titles and current programme metadata reaches playback tracking', async () => {
+  const response = listings();
+  Object.assign(response.channels[0].programmes[0], { subtitle: 'The familiar episode', episode: 'S02E03' });
+  const history = historyFixture(); history.setWatched(response.channels[0].programmes[0], true);
+  const w = world(), p = await w.player({ response, history });
+  await p.open();
+  assert.equal(p.get('channel-now-339').textContent, 'Programme 339');
+  assert.equal(p.get('channel-episode-339').textContent, 'The familiar episode · S02E03');
+  assert.equal(p.get('channel-watched-339').hidden, false);
+  assert.equal(p.get('channel-episode-310').hidden, true, 'unknown episode names are not fabricated');
+  const airing = programmeButton(p, '339', base - 15 * minute);
+  assert.equal(airing.querySelectorAll('.guide-programme-episode')[0].textContent, 'The familiar episode · S02E03');
+  assert.equal(airing.querySelectorAll('.watched-badge')[0].textContent, '✓ Watched');
+  assert.equal(p.currentProgrammes.at(-1)['339'].episode, 'S02E03');
+  assert.equal(p.currentProgrammes.at(-1)['310'].title, 'Programme 310');
+  p.controller.destroy();
+  assert.equal(history.listeners.size, 0);
+});
+
+test('long pressing an episode opens its description and release-click never schedules or tunes', async () => {
+  const response = listings();
+  Object.assign(response.channels[0].programmes[1], { subtitle: 'A future episode', episode: 'S01E02', description: '<b>Plain description text</b>' });
+  const w = world(), p = await w.player({ response, history: historyFixture() });
+  await p.open();
+  const button = programmeButton(p);
+  button.emit('pointerdown', { isPrimary: true, button: 0, clientX: 30, clientY: 30 });
+  await w.advance(599);
+  assert.equal(p.get('episode-dialog').open, false);
+  await w.advance(1);
+  assert.equal(p.get('episode-dialog').open, true);
+  assert.equal(p.get('episode-description').textContent, '<b>Plain description text</b>', 'descriptions are assigned as text rather than evaluated HTML');
+  assert.equal(p.get('episode-subtitle').textContent, 'A future episode · S01E02');
+  await w.advance(3000);
+  button.emit('pointerup');
+  const click = button.emit('click');
+  assert.equal(click.defaultPrevented, true);
+  assert.deepEqual(w.queue(), []);
+  assert.deepEqual(p.tuned, []);
+  assert.equal(p.controller.isOpen(), true);
+  p.controller.close();
+  assert.equal(p.get('episode-dialog').open, false);
+  assert.equal(p.get('guide-dialog').open, true, 'Back closes episode details before the guide');
+  p.controller.close();
+  assert.equal(p.get('guide-dialog').open, false);
+  p.controller.destroy();
+});
+
+test('scrolling or dragging cancels long press while a short tap preserves scheduling', async () => {
+  const w = world(), p = await w.player();
+  await p.open();
+  let button = programmeButton(p);
+  button.emit('pointerdown', { clientX: 20, clientY: 20 });
+  button.emit('pointermove', { clientX: 20, clientY: 45 });
+  await w.advance(700);
+  assert.equal(p.get('episode-dialog').open, false);
+  button.emit('pointerdown', { clientX: 20, clientY: 20 });
+  p.get('guide-scroll').emit('scroll');
+  await w.advance(700);
+  assert.equal(p.get('episode-dialog').open, false);
+  button.emit('pointerdown', { clientX: 20, clientY: 20 }); button.emit('pointerup'); button.emit('click');
+  await w.advance(0);
+  assert.equal(w.queue().length, 1);
+  p.controller.destroy();
+});
+
+test('keyboard and context-menu details allow watched toggles without changing the channel or schedule', async () => {
+  const response = listings(); Object.assign(response.channels[0].programmes[1], { subtitle: 'Episode name', episode: 'S01E05' });
+  const history = historyFixture(), w = world(), p = await w.player({ response, history });
+  await p.open();
+  programmeButton(p).emit('keydown', { key: 'i' });
+  assert.equal(p.get('episode-dialog').open, true);
+  assert.match(p.get('episode-description').textContent, /No description/);
+  await p.click('episode-watched');
+  assert.equal(history.isWatched(response.channels[0].programmes[1]), true);
+  assert.match(p.get('episode-watched').textContent, /Mark unwatched/);
+  assert.equal(programmeButton(p).querySelectorAll('.watched-badge').length, 1);
+  await p.click('episode-watched');
+  assert.equal(history.isWatched(response.channels[0].programmes[1]), false);
+  assert.equal(programmeButton(p).querySelectorAll('.watched-badge').length, 0);
+  await p.click('close-episode');
+  assert.equal(p.document.activeElement, programmeButton(p), 'closing details restores focus after a badge rerender');
+  programmeButton(p).emit('contextmenu');
+  assert.equal(p.get('episode-dialog').open, true);
+  assert.deepEqual(w.queue(), []); assert.deepEqual(p.tuned, []);
+  p.controller.destroy();
+});
+
+test('details distinguish unidentified archive blocks and report watched-storage failure', async () => {
+  const history = historyFixture(), w = world(), p = await w.player({ history });
+  await p.open(); programmeButton(p).emit('keydown', { key: 'F10', shiftKey: true });
+  assert.equal(p.get('episode-watched').hidden, true, 'an unknown episode cannot be manually mislabeled watched');
+  p.controller.destroy();
+  const response = listings(); response.channels[0].programmes[1].subtitle = 'Identified episode';
+  const failed = await w.player({ response, history: { ...history, setWatched: () => ({ ok: false, code: 'storage' }) } });
+  await failed.open(); programmeButton(failed).emit('contextmenu'); await failed.click('episode-watched');
+  assert.match(failed.get('episode-feedback').textContent, /could not be saved/);
+  assert.equal(failed.get('episode-watched').attributes['aria-pressed'], 'false');
+  failed.controller.destroy();
 });
 
 test('archive guide labels use their own rotation note while airing and future blocks retain ordinary tuning and scheduling', async () => {
@@ -204,13 +319,14 @@ test('pageshow catches a minimized or sleeping player up within grace and skips 
   late.controller.destroy();
 });
 
-test('without Web Locks future scheduling is disabled while an airing programme can still be watched immediately', async () => {
+test('without Web Locks future scheduling stays unavailable while episode details and airing-programme tuning remain usable', async () => {
   const w = world();
   const p = await w.player({ supported: false });
   await p.open();
   assert.match(p.get('schedule-help').textContent, /Web Locks/);
   const future = await p.clickProgramme('339', programme().start);
-  assert.equal(future.disabled, true);
+  assert.equal(future.disabled, false, 'episode details still need an accessible interactive target');
+  assert.match(p.get('guide-feedback').textContent, /Scheduling is unavailable/);
   assert.deepEqual(w.queue(), []);
   const airing = await p.clickProgramme('339', base - 15 * minute);
   assert.equal(airing.disabled, false);

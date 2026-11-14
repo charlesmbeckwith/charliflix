@@ -150,6 +150,8 @@ def main():
             'passed': True, 'abi': 'x86_64', 'nativeNodeStartup': True,
             'localHttpAssets': True, 'webViewDocument': True,
             'navigationPolicy': True, 'activityRecreation': True,
+            'storedThemeHistoryRecreation': True, 'pictureInPictureLifecycle': True,
+            'longTextLandscapeAndPortrait': True,
             'realStreamPlayback': False, 'retroidNovaDeviceTest': False,
         }
     evidence_file.write_text(json.dumps(evidence, indent=2) + '\n')

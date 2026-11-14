@@ -18,7 +18,7 @@ function player(android = true) {
     addEventListener: (type, fn) => { (handlers[type] ??= []).push(fn); },
     getElementById: id => elements.find(element => element.id === id),
     querySelector: selector => selector === 'dialog[open]' ? modal : selector === '.stage' ? { dispatchEvent: () => revealed++ } : null,
-    querySelectorAll: selector => selector === '.channel-card' ? elements.filter(element => element.channel) : elements,
+    querySelectorAll: selector => selector === 'dialog[open]' ? (modal || []) : selector === '.channel-card' ? elements.filter(element => element.channel) : elements,
   };
   function add(id, x, y, options = {}) {
     const element = { id, ...options, clicks: 0, scrolled: 0,
@@ -39,7 +39,8 @@ function player(android = true) {
   vm.runInNewContext(source, context, { filename: 'public/android-controls.js' });
   return { add, classes, document,
     get revealed() { return revealed; },
-    modal(...choices) { modal = { querySelectorAll: () => choices }; },
+    modal(...choices) { modal = [{ querySelectorAll: () => choices }]; },
+    overlay(...choices) { (modal ??= []).push({ querySelectorAll: () => choices }); },
     key(key, extras = {}) {
       const event = { key, target: document.activeElement, defaultPrevented: false, preventDefault() { this.defaultPrevented = true; }, ...extras };
       for (const handler of handlers.keydown || []) handler(event);
@@ -108,6 +109,21 @@ test('controller navigation preserves editing, range adjustment, modifiers and p
     p.key('ArrowUp', extra);
     assert.equal(p.document.activeElement, next);
   }
+});
+
+test('episode details on top of the guide retain controller focus and block channel shortcuts', () => {
+  const p = player();
+  const channel = p.add('channel', 0, 100, { channel: true, selected: true });
+  const guideClose = p.add('guide-close', 200, 10);
+  const detailsClose = p.add('details-close', 300, 10);
+  const mark = p.add('mark-watched', 300, 100);
+  p.modal(guideClose); p.overlay(detailsClose, mark);
+  p.document.activeElement = channel; p.key('ArrowDown');
+  assert.equal(p.document.activeElement, detailsClose);
+  p.key('ArrowDown'); p.key('Enter');
+  assert.equal(mark.clicks, 1);
+  assert.equal(p.key('PageDown').defaultPrevented, false);
+  assert.equal(channel.clicks, 0);
 });
 
 test('media play key activates the ordinary control and desktop browsers remain unchanged', () => {
