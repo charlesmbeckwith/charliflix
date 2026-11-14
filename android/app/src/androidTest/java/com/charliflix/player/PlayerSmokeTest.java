@@ -11,6 +11,8 @@ import android.os.ParcelFileDescriptor;
 import android.test.InstrumentationTestCase;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.WindowManager;
+import android.util.DisplayMetrics;
 import android.webkit.WebView;
 
 import org.json.JSONObject;
@@ -108,11 +110,32 @@ public final class PlayerSmokeTest extends InstrumentationTestCase {
         File directory = context.getExternalFilesDir(null);
         assertNotNull("Layout evidence directory available", directory);
         Files.write(new File(directory, "charliflix-layout-" + orientation + ".json").toPath(), json.getBytes(StandardCharsets.UTF_8));
-        Bitmap image = getInstrumentation().getUiAutomation().takeScreenshot();
-        assertNotNull(image);
+        Bitmap image = stableScreenshot(context, web);
         try (FileOutputStream output = new FileOutputStream(new File(directory, "charliflix-layout-" + orientation + ".png"))) {
             assertTrue(image.compress(Bitmap.CompressFormat.PNG, 100, output));
         } finally { image.recycle(); }
+    }
+
+    private Bitmap stableScreenshot(Context context, WebView web) throws Exception {
+        // WebView layout can finish before the emulator compositor has replaced
+        // the old orientation's surface. Let both settle before exporting proof.
+        CountDownLatch visualState = new CountDownLatch(1);
+        getInstrumentation().runOnMainSync(() -> web.postVisualStateCallback(android.os.SystemClock.uptimeMillis(),
+                new WebView.VisualStateCallback() {
+                    @Override public void onComplete(long requestId) { web.invalidate(); visualState.countDown(); }
+                }));
+        assertTrue("WebView reached the requested visual state", visualState.await(5, TimeUnit.SECONDS));
+        getInstrumentation().waitForIdleSync();
+        Thread.sleep(1000);
+        getInstrumentation().waitForIdleSync();
+        DisplayMetrics expected = new DisplayMetrics();
+        getInstrumentation().runOnMainSync(() -> ((WindowManager) context.getSystemService(Context.WINDOW_SERVICE))
+                .getDefaultDisplay().getRealMetrics(expected));
+        Bitmap image = getInstrumentation().getUiAutomation().takeScreenshot();
+        assertNotNull("Native screenshot captured after layout settled", image);
+        assertEquals("Screenshot width matches the current display", expected.widthPixels, image.getWidth());
+        assertEquals("Screenshot height matches the current display", expected.heightPixels, image.getHeight());
+        return image;
     }
 
     private String shell(String command) throws Exception {
@@ -346,8 +369,7 @@ public final class PlayerSmokeTest extends InstrumentationTestCase {
         File directory = context.getExternalFilesDir(null);
         assertNotNull("Test evidence directory available", directory);
         Files.write(new File(directory, "charliflix-android-smoke.json").toPath(), json.getBytes(StandardCharsets.UTF_8));
-        Bitmap screenshot = getInstrumentation().getUiAutomation().takeScreenshot();
-        assertNotNull("Native Android screenshot captured", screenshot);
+        Bitmap screenshot = stableScreenshot(context, web);
         try (FileOutputStream output = new FileOutputStream(new File(directory, "charliflix-android-smoke.png"))) {
             assertTrue("Android screenshot saved", screenshot.compress(Bitmap.CompressFormat.PNG, 100, output));
         } finally { screenshot.recycle(); }
