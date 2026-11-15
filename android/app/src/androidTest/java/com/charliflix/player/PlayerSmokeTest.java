@@ -56,6 +56,40 @@ public final class PlayerSmokeTest extends InstrumentationTestCase {
         }
     }
 
+    public void testFitToScreenPreservesPanelAndSurvivesRecreation() throws Exception {
+        Instrumentation instrumentation = getInstrumentation();
+        Context context = instrumentation.getTargetContext();
+        Intent launch = new Intent().setClassName(context.getPackageName(), MainActivity.class.getName()).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        Activity activity = instrumentation.startActivitySync(launch);
+        try {
+            WebView web = awaitPlayer(activity);
+            evaluate(web, "if(document.body.classList.contains('video-cover'))document.getElementById('fit-screen').click();true");
+            assertEquals("Fit starts with the whole image visible", "\"contain\"", evaluate(web, "getComputedStyle(document.getElementById('video')).objectFit"));
+            evaluate(web, "window.charliflixFitSmoke={before:(()=>{const r=document.getElementById('screen').getBoundingClientRect();return {x:r.x,y:r.y,width:r.width,height:r.height}})()};document.getElementById('fit-screen').click();true");
+            assertEquals("Fit uses centered cover cropping", "true", evaluate(web, "document.body.classList.contains('video-cover')&&getComputedStyle(document.getElementById('video')).objectFit==='cover'&&document.getElementById('fit-screen').getAttribute('aria-pressed')==='true'"));
+            assertEquals("Fit preserves the player's outer panel", "true", evaluate(web, "(()=>{const r=document.getElementById('screen').getBoundingClientRect(),b=window.charliflixFitSmoke.before;return ['x','y','width','height'].every(key=>Math.abs(r[key]-b[key])<1)})()"));
+            assertEquals("Fit preference uses stable update-independent storage", "\"cover\"", evaluate(web, "localStorage.getItem('charliflix:video-fit')"));
+            // Exercise reciprocal display shapes in the actual WebView. Cover
+            // must remain active and fill each rectangle without imposing 4:3.
+            for (String size : new String[] { "320,240", "640,180" }) {
+                assertEquals("Cover fits both 4:3 and 32:9 viewing surfaces", "true", evaluate(web,
+                        "(()=>{const [width,height]=[" + size + "],screen=document.getElementById('screen'),video=document.getElementById('video'),before=screen.getAttribute('style');screen.style.cssText='position:fixed;inset:auto;left:0;top:0;width:'+width+'px;height:'+height+'px;max-width:none;max-height:none;min-height:0';const r=video.getBoundingClientRect(),s=screen.getBoundingClientRect(),ok=getComputedStyle(video).objectFit==='cover'&&Math.abs(r.width-s.width)<3&&Math.abs(r.height-s.height)<3;before===null?screen.removeAttribute('style'):screen.setAttribute('style',before);return ok})()"));
+            }
+            Instrumentation.ActivityMonitor monitor = instrumentation.addMonitor(MainActivity.class.getName(), null, false);
+            Activity original = activity;
+            instrumentation.runOnMainSync(original::recreate);
+            Activity recreated = instrumentation.waitForMonitorWithTimeout(monitor, 10000);
+            instrumentation.removeMonitor(monitor);
+            assertNotNull("Activity recreated with fit preference", recreated);
+            activity = recreated;
+            WebView replacement = awaitPlayer(recreated);
+            assertEquals("Fit choice survives Activity recreation", "true", evaluate(replacement, "document.body.classList.contains('video-cover')&&getComputedStyle(document.getElementById('video')).objectFit==='cover'&&document.getElementById('fit-screen').getAttribute('aria-pressed')==='true'"));
+            evaluate(replacement, "document.getElementById('fit-screen').click();true");
+            assertEquals("The toggle restores the whole image", "true", evaluate(replacement, "!document.body.classList.contains('video-cover')&&getComputedStyle(document.getElementById('video')).objectFit==='contain'&&localStorage.getItem('charliflix:video-fit')==='contain'"));
+            assertEquals("Fit checks never start an upstream stream", "true", evaluate(replacement, "document.getElementById('video').paused&&!document.getElementById('video').getAttribute('src')"));
+        } finally { if (activity != null && !activity.isDestroyed()) finishAndWait(activity); }
+    }
+
     public void testLongChannelTextStaysInsideLandscapeAndPortraitLists() throws Exception {
         Instrumentation instrumentation = getInstrumentation();
         Context context = instrumentation.getTargetContext();
@@ -91,6 +125,8 @@ public final class PlayerSmokeTest extends InstrumentationTestCase {
         awaitJavascript(web, "window.charliflixLayoutSmoke.ready===true", "true");
         evaluate(web, "window.charliflixLayoutSmoke={baseline:(()=>{const r=document.getElementById('screen').getBoundingClientRect();return {x:r.x,y:r.y,width:r.width,height:r.height}})()};for(const card of document.querySelectorAll('.channel-card')){card.querySelector('.channel-name').textContent='A Very Long Channel Name That Must Never Reach Into The Video Panel';card.querySelector('.channel-now').textContent='The Extremely Long Television Show Name And Its Special Anniversary Presentation';let episode=card.querySelector('.channel-episode');if(!episode){episode=document.createElement('span');episode.className='channel-episode';card.querySelector('.channel-copy').appendChild(episode)}episode.hidden=false;episode.textContent='Season 12 Episode 24: A Very Long Episode Name That Needs Its Own Scrolling Text Row'}window.CharliflixScrollText?.refresh();requestAnimationFrame(()=>requestAnimationFrame(()=>window.charliflixLayoutSmoke.ready=true));true");
         awaitJavascript(web, "window.charliflixLayoutSmoke.ready===true", "true");
+        awaitJavascript(web, "!!document.querySelector('.channel-now.scroll-text.is-overflowing.text-visible .scroll-text-track')", "true");
+        assertContinuousShowMarquee(web);
         String encoded = evaluate(web, "JSON.stringify((()=>{const b=document.querySelector('.sidebar').getBoundingClientRect(),s=document.getElementById('screen').getBoundingClientRect();return {orientation:'" + orientation + "',width:innerWidth,height:innerHeight,documentWidth:document.documentElement.scrollWidth,documentHeight:document.documentElement.scrollHeight,sidebarRight:b.right,baseline:window.charliflixLayoutSmoke.baseline,screen:{x:s.x,y:s.y,width:s.width,height:s.height},cards:[...document.querySelectorAll('.channel-card')].map(card=>{const r=card.getBoundingClientRect(),p=card.closest('section').getBoundingClientRect();return {right:r.right,sectionRight:p.right}}),scrollingLabels:document.querySelectorAll('.channel-card .scroll-text.is-overflowing').length}})())");
         String json = new JSONArray("[" + encoded + "]").getString(0);
         JSONObject evidence = new JSONObject(json);
@@ -114,6 +150,28 @@ public final class PlayerSmokeTest extends InstrumentationTestCase {
         try (FileOutputStream output = new FileOutputStream(new File(directory, "charliflix-layout-" + orientation + ".png"))) {
             assertTrue(image.compress(Bitmap.CompressFormat.PNG, 100, output));
         } finally { image.recycle(); }
+    }
+
+    private void assertContinuousShowMarquee(WebView web) throws Exception {
+        // Inspect the browser's running CSS animation, not a mirrored motion
+        // formula. One real title remains available to assistive technology.
+        String encoded = evaluate(web, "JSON.stringify((()=>{const label=document.querySelector('.channel-now.scroll-text.is-overflowing.text-visible'),track=label.querySelector('.scroll-text-track'),copy=track.querySelector('.scroll-text-copy'),style=getComputedStyle(track),animation=track.getAnimations()[0];if(!animation)return {missing:true};const duration=animation.effect.getTiming().duration;animation.pause();const x=part=>{animation.currentTime=duration*part;return new DOMMatrixReadOnly(getComputedStyle(track).transform).m41};const points=[x(.25),x(.5),x(.75),x(1.25)];animation.currentTime=0;animation.play();return {direction:style.animationDirection,timing:style.animationTimingFunction,iterations:style.animationIterationCount,text:label.textContent,realText:track.querySelector('.scroll-text-content').textContent,copyHidden:copy.getAttribute('aria-hidden'),copyText:copy.getAttribute('data-scroll-text'),points,children:track.children.length}})())");
+        JSONObject evidence = new JSONObject(new JSONArray("[" + encoded + "]").getString(0));
+        assertFalse("Visible show titles have a running marquee", evidence.optBoolean("missing"));
+        assertEquals("The marquee always travels in one direction", "normal", evidence.getString("direction"));
+        assertEquals("The marquee moves at a steady speed", "linear", evidence.getString("timing"));
+        assertEquals("The marquee repeats continuously", "infinite", evidence.getString("iterations"));
+        assertEquals("The repeat is hidden from accessibility", "true", evidence.getString("copyHidden"));
+        assertEquals("The repeat contains the complete show title", evidence.getString("realText"), evidence.getString("copyText"));
+        assertEquals("The accessible title is present once", evidence.getString("realText"), evidence.getString("text"));
+        assertEquals("Exactly one original and one repeat exist", 2, evidence.getInt("children"));
+        JSONArray points = evidence.getJSONArray("points");
+        assertTrue("The text moves left during the whole cycle", points.getDouble(0) < 0 && points.getDouble(1) < points.getDouble(0) && points.getDouble(2) < points.getDouble(1));
+        assertEquals("The next cycle repeats rather than bouncing backwards", points.getDouble(0), points.getDouble(3), 1.0);
+        assertEquals("Each quarter moves the same distance", points.getDouble(1) - points.getDouble(0), points.getDouble(2) - points.getDouble(1), 1.0);
+        evaluate(web, "for(let i=0;i<4;i++)window.CharliflixScrollText.refresh();true");
+        awaitJavascript(web, "[...document.querySelectorAll('.channel-now .scroll-text-track')].every(track=>track.children.length===2&&track.querySelectorAll('.scroll-text-copy').length===1)", "true");
+        assertEquals("Focused channel outline has no outside gap", "true", evaluate(web, "(()=>{const card=document.querySelector('.channel-card');card.focus();return card.matches(':focus-visible')&&parseFloat(getComputedStyle(card).outlineOffset)<=0})()"));
     }
 
     private Bitmap stableScreenshot(Context context, WebView web) throws Exception {

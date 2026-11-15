@@ -6,7 +6,7 @@
   document.body.classList.add('android-app');
   const focusable = 'button,a[href],input,select,textarea';
   const editable = target => target?.closest('textarea,select,[contenteditable],input:not([type="range"]):not([type="checkbox"]):not([type="radio"]):not([type="button"])');
-  const currentScope = () => Array.from(document.querySelectorAll('dialog[open]')).at(-1) || document;
+  const currentScope = () => Array.from(document.querySelectorAll('dialog[open]')).at(-1) || document.fullscreenElement || document;
   const visible = element => !element.disabled && element.getAttribute('tabindex') !== '-1' && element.getClientRects().length > 0;
   const activate = element => {
     if (element?.matches('button,a[href],input[type="checkbox"],input[type="radio"]') && visible(element)) {
@@ -63,16 +63,16 @@
     } else if (event.key === 'Enter' && !event.repeat) {
       // Buttons and links remain ordinary DOM actions, including modal controls.
       if (activate(target)) event.preventDefault();
-    } else if (event.key === 'MediaPlayPause' && !event.repeat && scope === document) {
+    } else if (event.key === 'MediaPlayPause' && !event.repeat && (scope === document || scope === document.fullscreenElement)) {
       if (activate(document.getElementById('play-toggle'))) event.preventDefault();
-    } else if ((event.key === 'PageUp' || event.key === 'PageDown') && !event.repeat && scope === document) {
+    } else if ((event.key === 'PageUp' || event.key === 'PageDown') && !event.repeat && (scope === document || scope === document.fullscreenElement)) {
       const channels = Array.from(document.querySelectorAll('.channel-card')).filter(element => !element.disabled);
       if (!channels.length) return;
       const index = channels.findIndex(element => element.getAttribute('aria-pressed') === 'true');
       const direction = event.key === 'PageDown' ? 1 : -1;
       const next = channels[(Math.max(0, index) + direction + channels.length) % channels.length];
       next.click();
-      if (visible(next)) { next.focus(); next.scrollIntoView({ block: 'nearest', inline: 'nearest' }); }
+      if (scope === document && visible(next)) { next.focus(); next.scrollIntoView({ block: 'nearest', inline: 'nearest' }); }
       event.preventDefault();
     }
   });

@@ -149,3 +149,17 @@ test('media play key activates the ordinary control and desktop browsers remain 
   assert.equal(channel.clicks, 0);
   assert.equal(desktop.classes.size, 0);
 });
+
+
+test('fullscreen D-pad stays on visible player controls while shoulder channel shortcuts still work',()=>{
+  const p=player();
+  const channel=p.add('channel',0,100,{channel:true,selected:true});
+  const other=p.add('other-channel',0,180,{channel:true});
+  const play=p.add('play-toggle',200,100),fit=p.add('fit-screen',300,100);
+  p.document.fullscreenElement={querySelectorAll:()=>[play,fit]};
+  p.document.activeElement=channel;p.key('ArrowRight');assert.equal(p.document.activeElement,play);
+  p.key('ArrowRight');assert.equal(p.document.activeElement,fit);
+  p.key('Enter');assert.equal(fit.clicks,1);
+  p.key('PageDown');assert.equal(other.clicks,1);assert.equal(p.document.activeElement,fit,'changing a fullscreen channel never focuses its hidden sidebar card');
+  p.key('MediaPlayPause');assert.equal(play.clicks,1);
+});

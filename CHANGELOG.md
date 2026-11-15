@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.13
+
+- Changed overflowing channel, show, episode and guide text to loop continuously leftward, including the current channel heading. Short titles remain still and reduced-motion users can pan long rows manually.
+- Tightened channel card vertical padding, the list gutter and sidebar spacing. Controller focus now follows the card outline without an outside gap.
+- Added a remembered Fit toggle that fills any video surface by cropping excess edges, including 4:3 handheld and ultrawide screens. Toggle it off to see the whole image.
+- Added 15-second backward/forward buttons and double taps on the left/right half of video. Live HLS retains up to five minutes of available media; seeking respects buffer gaps, browser eviction, first playback after tuning and the current live edge. Switching channels or feeds clears the buffer.
+- Rewound archive playback stays in its current recording until its media endpoint; LIVE rejoins the current rotation. Paused seeks remain paused, and shifted playback does not miscredit the current episode as watched.
+- Kept custom controls and gestures available in fullscreen and constrained Android controller focus to the fullscreen player. Added real WebView fit-preference, continuous-marquee and focus checks.
+
 ## 0.3.12
 
 - Added Android picture-in-picture: playing video can remain visible when pressing Home or switching apps, with a native play/pause action and an optional setting. Fully hidden or dismissed playback still pauses.

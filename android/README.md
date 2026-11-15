@@ -6,7 +6,7 @@ Actual launch, sound, playback and controller behavior on the Nova still need de
 
 ## Install and update
 
-1. On the Nova, open [Charliflix Releases](https://github.com/charlesmbeckwith/charliflix/releases/latest) and download **Charliflix-v0.3.12-Android-arm64.apk**.
+1. On the Nova, open [Charliflix Releases](https://github.com/charlesmbeckwith/charliflix/releases/latest) and download **Charliflix-v0.3.13-Android-arm64.apk**.
 2. Open the downloaded APK. If Android asks, allow this browser or file manager to install the downloaded app, then approve installation.
 3. Open **Charliflix** from the launcher and choose a channel.
 
@@ -92,3 +92,5 @@ This creates the separate `com.charliflix.player.debug` app. Never distribute it
 The [Android workflow](../.github/workflows/android.yml) is configured to build and lint the signed ARM64 APK, audit its contents, and run an x86-64 debug edition in an Android 13 emulator. Tests check native Node startup, local HTTP assets, WebView loading, navigation policy, activity recreation, PiP lifecycle and long-text bounds in landscape and portrait. Screenshots and layout JSON are uploaded as CI evidence. A successful workflow is recorded in the release verification JSON; inspect that result before claiming a particular release passed. The PiP lifecycle test uses a controlled eligibility fixture, not an actual TV feed.
 
 The emulator check does not test actual ARM64 Nova playback, physical buttons, audio output or sustained streaming. Those remain device checks. Independent archive media inspection verified H.264 video with AAC audio; feed availability can still change after a release.
+
+Fit fills the viewing area by cropping excess edges and remembers your preference. Double tap the left/right video halves to seek backward/forward by up to 15 seconds. Up to five minutes of live media can remain available, bounded by the actual retained buffer and the first playback position after tuning. Channel/feed changes clear it. LIVE returns to the current position. Continuous marquee text moves left and repeats within its row; reduced-motion disables animation.

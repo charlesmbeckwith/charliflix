@@ -151,7 +151,7 @@ def main():
             'localHttpAssets': True, 'webViewDocument': True,
             'navigationPolicy': True, 'activityRecreation': True,
             'storedThemeHistoryRecreation': True, 'pictureInPictureLifecycle': True,
-            'longTextLandscapeAndPortrait': True,
+            'longTextLandscapeAndPortrait': True, 'fitToScreenAndContinuousMarquee': True,
             'realStreamPlayback': False, 'retroidNovaDeviceTest': False,
         }
     evidence_file.write_text(json.dumps(evidence, indent=2) + '\n')

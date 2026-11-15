@@ -46,6 +46,8 @@ async function player(channels = [channel()], stored = {}, options = {}) {
       this.seeking = false;
       this.error = null;
       this.duration = NaN;
+      this.buffered = timeRanges([]);
+      this.seekable = timeRanges([]);
       this.className = '';
       const classes = new Set();
       this.classList = {
@@ -100,7 +102,7 @@ async function player(channels = [channel()], stored = {}, options = {}) {
     static Events = { MEDIA_ATTACHED: 'attached', MANIFEST_PARSED: 'manifest', LEVEL_SWITCHED: 'level', ERROR: 'error' };
     static ErrorTypes = { NETWORK_ERROR: 'network', MEDIA_ERROR: 'media' };
     static isSupported() { return true; }
-    constructor() { this.events = {}; this.levels = []; this.currentLevel = -1; Hls.instances.push(this); }
+    constructor(config) { this.config=config; this.events = {}; this.levels = []; this.currentLevel = -1; Hls.instances.push(this); }
     on(event, callback) { this.events[event] = callback; }
     emit(event, data = {}) { this.events[event]?.(event, data); }
     attachMedia() { this.emit('attached'); }
@@ -164,6 +166,8 @@ async function player(channels = [channel()], stored = {}, options = {}) {
     guideTune(id) { guideOptions.onTune(id); },
   };
 }
+
+function timeRanges(items) { return { length:items.length,start:index=>items[index][0],end:index=>items[index][1] }; }
 
 test('manual feed preferences remain independent per channel and preserve audio and theater', async () => {
   const p = await player([channel(), channel('310')], {
@@ -731,7 +735,7 @@ test('watched tracking counts only advancing playback and excludes pauses, seeks
   const video = p.get('video');
   video.emit('timeupdate'); p.elapse(2000); video.currentTime = 2; video.emit('timeupdate');
   assert.deepEqual(records.map(record => record.slice(1)), [[100000,102000]]);
-  p.elapse(2000); video.currentTime = 100; video.emit('timeupdate');
+  p.elapse(2000); video.currentTime = 10; video.emit('timeupdate');
   assert.equal(records.length, 1, 'a large media seek earns no watched time');
   video.pause(); p.elapse(10000); video.emit('timeupdate');
   assert.equal(records.length, 1);
@@ -765,4 +769,133 @@ test('native PiP hooks report eligibility, keep theater preference independent a
   assert.equal(p.body.classList.contains('theater-mode'), true, 'PiP never overwrites the saved theater setting');
   assert.equal(p.storage.get('channel-room:theater'), 'true');
   video.pause(); assert.equal(p.nativeState().playing, false);
+});
+
+
+async function seekPlayer() {
+  const p=await player();p.click('start-watching');
+  const video=p.get('video');video.currentTime=100;p.playing();
+  video.buffered=timeRanges([[0,200]]);video.seekable=timeRanges([[170,210]]);
+  p.current.liveSyncPosition=195;video.currentTime=180;video.emit('timeupdate');
+  return p;
+}
+
+test('fit toggles cropping without changing playback and restores the saved choice', async()=>{
+  const p=await player([],{'charliflix:video-fit':'cover'});
+  assert.equal(p.body.classList.contains('video-cover'),true);
+  p.click('fit-screen');assert.equal(p.body.classList.contains('video-cover'),false);
+  assert.equal(p.storage.get('charliflix:video-fit'),'contain');
+  p.click('fit-screen');assert.equal(p.get('fit-screen').attributes['aria-pressed'],'true');
+  assert.equal(p.attempts.length,0);
+});
+
+test('HLS rewind uses retained video, respects session start and does not force latency catch-up',async()=>{
+  const p=await seekPlayer(),video=p.get('video');
+  assert.equal(p.current.config.backBufferLength,300);
+  assert.equal(p.current.config.liveMaxLatencyDurationCount,Infinity);
+  p.click('seek-back');assert.equal(video.currentTime,165,'retained media outside the current playlist remains available');
+  for(let i=0;i<8;i++)p.click('seek-back');
+  assert.equal(video.currentTime,100,'cannot rewind before first playback after tuning');
+  assert.equal(p.get('seek-back').disabled,true);
+  p.selectChannel('339');assert.equal(p.get('seek-back').disabled,true);
+  assert.equal(p.get('seek-forward').disabled,true);
+});
+
+test('seeks avoid buffer holes, honor eviction and the five-minute ceiling, and stop at live',async()=>{
+  const p=await seekPlayer(),video=p.get('video');
+  video.buffered=timeRanges([[0,120],[150,210]]);video.currentTime=155;
+  p.click('seek-back');assert.equal(video.currentTime,150.05,'gap target snaps into an actual available range');
+  video.buffered=timeRanges([[170,210]]);video.currentTime=185;
+  p.click('seek-back');assert.equal(video.currentTime,170.05,'evicted video is unavailable');
+  p.current.liveSyncPosition=600;video.buffered=timeRanges([[0,650]]);video.currentTime=310;
+  p.click('seek-back');assert.equal(video.currentTime,300,'retention ceiling is five minutes behind live');
+  video.currentTime=590;p.click('seek-forward');assert.equal(video.currentTime,600);
+  p.click('seek-forward');assert.equal(video.currentTime,600);
+  assert.equal(p.get('seek-forward').disabled,true);
+  video.currentTime=500;p.click('go-live');assert.equal(video.currentTime,600);
+});
+
+test('seeking preserves pause and waits honestly when no buffer exists',async()=>{
+  const p=await seekPlayer(),video=p.get('video');
+  video.pause();const calls=video.playCalls||0;
+  p.elapse(60000);p.click('seek-back');assert.equal(video.currentTime,165);
+  assert.equal(video.paused,true);assert.equal(video.playCalls||0,calls);
+  p.elapse(120000);assert.equal(p.attempts.length,1);
+  video.buffered=timeRanges([]);p.click('seek-back');
+  assert.match(p.get('seek-feedback').textContent,/No rewind buffer/);
+  assert.equal(video.currentTime,165);
+});
+
+function touch(p,x,extras={}) {
+  const screen=p.get('screen');
+  const event={target:p.get('video'),pointerType:'touch',isPrimary:true,pointerId:1,clientX:x,clientY:100,preventDefault(){},...extras};
+  screen.emit('pointerdown',event);screen.emit('pointerup',event);
+}
+test('double taps seek by side once; swipes, crossed sides, multitouch and synthesized clicks do not',async()=>{
+  const p=await seekPlayer(),video=p.get('video');
+  touch(p,200);p.elapse(100);touch(p,200);assert.equal(video.currentTime,165);
+  p.get('screen').emit('dblclick',{target:video,clientX:200,preventDefault(){}});
+  assert.equal(video.currentTime,165,'touch-generated doubleclick cannot seek twice');
+  touch(p,600);p.elapse(100);touch(p,600);assert.equal(video.currentTime,180);
+  p.elapse(600);touch(p,200);touch(p,600);assert.equal(video.currentTime,180);
+  const screen=p.get('screen'),base={target:video,pointerType:'touch',isPrimary:true,pointerId:2,clientY:100,preventDefault(){}};
+  screen.emit('pointerdown',{...base,clientX:200});screen.emit('pointerup',{...base,clientX:270});
+  touch(p,200);assert.equal(video.currentTime,180,'a swipe resets the double tap');
+  screen.emit('pointerdown',{...base,clientX:200});screen.emit('pointerdown',{...base,clientX:220,isPrimary:false});screen.emit('pointerup',{...base,clientX:200});
+  touch(p,200);assert.equal(video.currentTime,180,'secondary fingers cancel the gesture');
+  p.elapse(600);screen.emit('dblclick',{target:video,clientX:200,preventDefault(){}});assert.equal(video.currentTime,165,'mouse doubleclick also works');
+});
+
+test('a deliberate seek grants one fresh buffering deadline without allowing repeated events to extend it',async()=>{
+  const p=await seekPlayer();p.elapse(24000);p.click('seek-back');
+  p.elapse(24000);assert.equal(p.attempts.length,1);
+  p.get('video').emit('waiting');p.elapse(1000);
+  assert.equal(p.attempts.length,2,'still fails over if the seek never delivers playback');
+});
+
+test('archive rewind stays in its recording after broadcast turnover and LIVE rejoins the rotation',async()=>{
+  let calls=0;
+  const p=await player([archiveChannel()],{}, {fetchImpl:url=>url.endsWith('/playback')?(calls++,jsonResponse(archiveDescriptor())):undefined});
+  p.click('start-watching');await p.flush();const video=p.get('video');
+  video.duration=200;video.seekable=timeRanges([[0,200]]);video.emit('loadedmetadata');p.playing();
+  for(let i=0;i<9;i++){p.elapse(10000);video.currentTime+=10;video.emit('timeupdate');}
+  assert.equal(video.currentTime,135);p.click('seek-back');assert.equal(video.currentTime,120);
+  p.elapse(10000);video.currentTime=130;video.emit('timeupdate');await p.flush();
+  assert.equal(calls,1,'original wall-clock deadline cannot cut off delayed video');
+  video.pause();p.elapse(1000);p.click('play-toggle');await p.flush();assert.equal(calls,1,'resume preserves delayed recording');
+  p.click('go-live');await p.flush();assert.equal(calls,2);
+});
+
+test('delayed playback credits actual episode time and never marks the current show for an earlier one',async()=>{
+  const records=[];
+  const p=await player([channel()],{}, {guide:true,history:{recordCoverage:(...args)=>records.push(args),flush(){}}});
+  const video=p.get('video');p.click('start-watching');video.currentTime=100;p.current.liveSyncPosition=130;p.playing();
+  video.buffered=timeRanges([[100,200]]);
+  const programme={title:'Show',subtitle:'Episode',channelId:'339',start:60000,end:200000};p.programmes({'339':programme});
+  video.emit('timeupdate');p.elapse(1000);p.current.liveSyncPosition=131;video.currentTime=101;video.emit('timeupdate');
+  assert.deepEqual(records.map(record=>record.slice(1)),[[70000,71000]]);
+  p.programmes({'339':{...programme,start:100000}});p.elapse(1000);video.currentTime++;p.current.liveSyncPosition++;video.emit('timeupdate');
+  assert.equal(records.length,1,'an earlier programme cannot be credited as the current show');
+});
+
+
+test('stepped HLS live-edge updates cannot distort watched episode coverage',async()=>{
+  const records=[];
+  const p=await player([channel()],{}, {guide:true,history:{recordCoverage:(...args)=>records.push(args),flush(){}}});
+  const video=p.get('video');p.click('start-watching');video.currentTime=100;p.current.liveSyncPosition=120;p.playing();
+  const programme={title:'Show',subtitle:'Episode',channelId:'339',start:0,end:200000};p.programmes({'339':programme});
+  video.emit('timeupdate');
+  for(let i=0;i<4;i++){p.elapse(1000);video.currentTime++;if(i===2)p.current.liveSyncPosition+=6;video.emit('timeupdate');}
+  assert.deepEqual(records.map(record=>record.slice(1)),[[80000,81000],[81000,82000],[82000,83000],[83000,84000]]);
+});
+
+test('buffering at an archive transition cannot cut a rewound recording short',async()=>{
+  let calls=0;
+  const p=await player([archiveChannel()],{}, {fetchImpl:url=>url.endsWith('/playback')?(calls++,jsonResponse(archiveDescriptor())):undefined});
+  p.click('start-watching');await p.flush();const video=p.get('video');video.duration=200;video.seekable=timeRanges([[0,200]]);video.emit('loadedmetadata');p.playing();
+  for(let i=0;i<9;i++){p.elapse(10000);video.currentTime+=10;video.emit('timeupdate');}
+  p.click('seek-back'); //120, with25s remaining in this recording
+  p.elapse(20000);video.currentTime=125;video.emit('timeupdate');
+  p.elapse(5000);await p.flush();assert.equal(calls,1,'timer checks actual media progress, not just elapsed wall time');
+  video.currentTime=145;video.emit('timeupdate');await p.flush();assert.equal(calls,2);
 });

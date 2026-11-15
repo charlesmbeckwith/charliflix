@@ -77,13 +77,19 @@
   let archivePlayback=null, archiveController=null, archiveTimer=null;
   let nativeSuspended=false;
   let pictureInPicture=false, currentProgrammes={}, watchSample=null;
+  let sessionStart=null, archiveShifted=false, seekFeedbackTimer=null, tap=null, pointerStart=null, lastTouchSeek=-Infinity;
+  let mediaAnchor=null;
+  const rewindLimit=300;
   function resetWatchSample() { watchSample=null;window.CharliflixHistory?.flush(); }
   function samplePlayback() {
-    const now=Date.now(),programme=currentProgrammes[state.selected?.id];
-    const current={time:now,position:video.currentTime,generation:state.generation,programme};
+    const clock=Date.now();
+    const now=archivePlayback?archivePlayback.receivedAt+(video.currentTime-archivePlayback.startTime)*1000:mediaAnchor?mediaAnchor.time+(video.currentTime-mediaAnchor.position)*1000:clock;
+    const programme=currentProgrammes[state.selected?.id];
+    if(!Number.isFinite(now)||!programme||now<programme.start||now>=programme.end){watchSample=null;return;}
+    const current={time:clock,position:video.currentTime,generation:state.generation,programme};
     const previous=watchSample;watchSample=current;
     if(!previous||!programme||previous.programme?.start!==programme.start||previous.programme?.channelId!==programme.channelId||previous.generation!==state.generation)return;
-    const wall=now-previous.time,media=(video.currentTime-previous.position)*1000;
+    const wall=clock-previous.time,media=(video.currentTime-previous.position)*1000;
     if(wall<=0||wall>5000||media<=0||media>wall*1.5+500||video.readyState<2||!state.receivedPlayback)return;
     window.CharliflixHistory?.recordCoverage(programme,now-Math.min(wall,media),now);
   }
@@ -101,14 +107,15 @@
     document.body.classList.toggle('picture-in-picture',pictureInPicture);
     if(!pictureInPicture)window.CharliflixScrollText?.refresh();
   };
-  function clearArchive() { clearTimeout(archiveTimer);archiveTimer=null;archiveController?.abort();archiveController=null;archivePlayback=null; }
-  function archiveExpired() { return archivePlayback && Date.now()-archivePlayback.receivedAt >= archivePlayback.endsAt-archivePlayback.serverTime; }
+  function clearArchive() { clearTimeout(archiveTimer);archiveTimer=null;archiveController?.abort();archiveController=null;archivePlayback=null;archiveShifted=false; }
+  function archiveExpired() { return archivePlayback && !archiveShifted && Date.now()-archivePlayback.receivedAt >= archivePlayback.endsAt-archivePlayback.serverTime; }
   function continueArchive() { if(state.selected?.playbackType==='file')start(state.selected,{feed:state.feed}); }
   function armArchive() {
     clearTimeout(archiveTimer);
     if(!archivePlayback||video.paused)return;
     const generation=state.generation;
-    archiveTimer=setTimeout(()=>{if(generation===state.generation&&!video.paused)continueArchive();},Math.max(1,archivePlayback.endsAt-archivePlayback.serverTime-(Date.now()-archivePlayback.receivedAt)));
+    const remaining=archiveShifted?(archivePlayback.trimEnd-video.currentTime)*1000:archivePlayback.endsAt-archivePlayback.serverTime-(Date.now()-archivePlayback.receivedAt);
+    archiveTimer=setTimeout(()=>{if(generation!==state.generation||video.paused)return;if(archiveShifted&&video.currentTime<archivePlayback.trimEnd-0.1)armArchive();else continueArchive();},Math.max(100,remaining));
   }
   async function startArchive(base,generation) {
     const controller=new AbortController();archiveController=controller;
@@ -137,10 +144,12 @@
   let previousScroll = 0;
   let controlsTimer;
   const controls = document.querySelector('.player-controls');
+  const stage=document.querySelector('.stage');
+  function overlayControls() { return theater||document.fullscreenElement===stage; }
   function showTheaterControls() {
     clearTimeout(controlsTimer);
     document.body.classList.remove('controls-hidden');
-    if(theater && !video.paused) controlsTimer = setTimeout(() => {
+    if(overlayControls() && !video.paused) controlsTimer = setTimeout(() => {
       if(!controls.matches(':hover') && !controls.contains(document.activeElement)) document.body.classList.add('controls-hidden');
     }, 3000);
   }
@@ -166,6 +175,84 @@
     $('volume-value').textContent = `${Math.round(video.volume*100)}%`;
   }
   function updatePlay() { const paused=video.paused; $('play-toggle').setAttribute('aria-label',paused?'Play':'Pause'); $('play-path').setAttribute('d',paused?'m8 5 11 7-11 7z':'M7 5h4v14H7zM15 5h4v14h-4z'); }
+  let videoFit='contain';
+  function setVideoFit(value) {
+    videoFit=value==='cover'?'cover':'contain';
+    document.body.classList.toggle('video-cover',videoFit==='cover');
+    $('fit-screen').setAttribute('aria-pressed',String(videoFit==='cover'));
+    $('fit-screen').setAttribute('aria-label',videoFit==='cover'?'Show whole picture':'Fit to screen');
+    $('fit-screen').title=videoFit==='cover'?'Show whole picture (remove crop)':'Fit to screen (crop edges)';
+    try{localStorage.setItem('charliflix:video-fit',videoFit);}catch{}
+  }
+  try{setVideoFit(localStorage.getItem('charliflix:video-fit'));}catch{setVideoFit('contain');}
+  $('fit-screen').addEventListener('click',()=>setVideoFit(videoFit==='cover'?'contain':'cover'));
+  function ranges(value) {
+    const result=[];
+    try{for(let i=0;i<Math.min(value?.length||0,100);i++){const start=value.start(i),end=value.end(i);if(Number.isFinite(start)&&Number.isFinite(end)&&end>start)result.push([start,end]);}}catch{}
+    return result;
+  }
+  function livePosition() {
+    if(archivePlayback)return Math.min(archivePlayback.trimEnd-0.05,archivePlayback.startTime+(Date.now()-archivePlayback.receivedAt)/1000);
+    const sync=state.hls?.liveSyncPosition;
+    if(Number.isFinite(sync))return sync;
+    const available=ranges(video.seekable);
+    return available.length?available.at(-1)[1]-0.1:video.currentTime;
+  }
+  function seekRanges() {
+    if(!state.started||!state.receivedPlayback||sessionStart===null||nativeSuspended||!$('error-overlay').hidden)return [];
+    const edge=livePosition(),floor=Math.max(sessionStart,edge-rewindLimit,archivePlayback?.trimStart||0);
+    const ceiling=Math.min(edge,archivePlayback?.trimEnd??Infinity,Number.isFinite(video.duration)?video.duration:Infinity);
+    return ranges(state.hls?video.buffered:video.seekable).map(([start,end])=>[Math.max(start+0.05,floor),Math.min(end-0.1,ceiling)]).filter(([start,end])=>end>=start);
+  }
+  function updateSeekControls() {
+    const available=seekRanges(),position=video.currentTime;
+    $('seek-back').disabled=!available.some(([start])=>start<position-0.2);
+    $('seek-forward').disabled=!available.some(([,end])=>end>position+0.2);
+    const delayed=state.receivedPlayback&&(!archivePlayback||archiveShifted)&&livePosition()-position>3;
+    $('go-live').classList.toggle('is-delayed',delayed);
+    $('go-live').setAttribute('aria-label',delayed?'Return to live position':'Live position');
+    if(document.body.dataset.playback==='playing'){
+      $('state-text').textContent=delayed?'Delayed':archivePlayback?'Archive':'Live';
+      $('playback-note').textContent=delayed?`${Math.round(livePosition()-position)} seconds behind live · ${feedLabel()}`:archivePlayback?`${archivePlayback.programTitle} · Charliflix rotation`:`Watching live · ${feedLabel()}`;
+    }
+  }
+  function seekFeedback(message,direction) {
+    const feedback=$('seek-feedback');clearTimeout(seekFeedbackTimer);
+    feedback.textContent=message;feedback.dataset.direction=direction;feedback.hidden=false;
+    seekFeedbackTimer=setTimeout(()=>{feedback.hidden=true;},1200);
+  }
+  function seekBy(seconds) {
+    const available=seekRanges(),position=video.currentTime,direction=seconds<0?'back':'forward';
+    if(!available.length){seekFeedback('No rewind buffer available yet',direction);return;}
+    const desired=Math.max(available[0][0],Math.min(available.at(-1)[1],position+seconds));
+    let target;
+    for(const [start,end] of available){if(desired>=start&&desired<=end){target=desired;break;}}
+    if(target===undefined){const candidates=available.flat();target=candidates.reduce((best,value)=>Math.abs(value-desired)<Math.abs(best-desired)?value:best);}
+    if((seconds<0&&target>=position-0.2)||(seconds>0&&target<=position+0.2)){seekFeedback(seconds<0?'Start of available buffer':'At live position',direction);return;}
+    resetWatchSample();
+    try{video.currentTime=target;}catch{seekFeedback('This feed cannot seek here',direction);return;}
+    if(archivePlayback)archiveShifted=true;
+    state.lastTime=target;state.lastProgressAt=Date.now();
+    if(!video.paused){armStallTimer();armArchive();}
+    updateSeekControls();seekFeedback(`${seconds<0?'−':'+'}${Math.round(Math.abs(target-position))} seconds`,direction);
+  }
+  $('seek-back').addEventListener('click',()=>seekBy(-15));
+  $('seek-forward').addEventListener('click',()=>seekBy(15));
+  const screen=$('screen');
+  function tapAllowed(event) { return state.receivedPlayback&&!nativeSuspended&&$('error-overlay').hidden&&$('idle-slate').hidden&&!event.target.closest('button,input,select,a'); }
+  screen.addEventListener('pointerdown',event=>{
+    if(event.isPrimary===false){tap=null;pointerStart=null;return;}
+    pointerStart=event.pointerType!=='mouse'&&tapAllowed(event)?{id:event.pointerId,x:event.clientX,y:event.clientY,time:Date.now()}:null;
+  });
+  screen.addEventListener('pointercancel',()=>{tap=null;pointerStart=null;});
+  screen.addEventListener('pointerup',event=>{
+    const start=pointerStart;pointerStart=null;
+    if(!start||event.isPrimary===false||event.pointerId!==start.id||!tapAllowed(event)||Date.now()-start.time>350||Math.hypot(event.clientX-start.x,event.clientY-start.y)>18){tap=null;return;}
+    const bounds=screen.getBoundingClientRect(),side=event.clientX-bounds.x<bounds.width/2?'back':'forward';
+    if(tap&&tap.side===side&&Date.now()-tap.time<=350&&Math.hypot(event.clientX-tap.x,event.clientY-tap.y)<55){event.preventDefault();lastTouchSeek=Date.now();tap=null;seekBy(side==='back'?-15:15);}
+    else tap={side,time:Date.now(),x:event.clientX,y:event.clientY};
+  });
+  screen.addEventListener('dblclick',event=>{if(Date.now()-lastTouchSeek<500||event.sourceCapabilities?.firesTouchEvents||!tapAllowed(event))return;event.preventDefault();const bounds=screen.getBoundingClientRect();seekBy(event.clientX-bounds.x<bounds.width/2?-15:15);});
   function status(kind, label, detail) {
     document.body.dataset.playback = kind;
     $('state-pill').dataset.state = kind;
@@ -242,6 +329,7 @@
     $('loading-overlay').hidden=true;
     $('idle-slate').hidden=true;
     $('error-overlay').hidden=false;
+    updateSeekControls();
     $('error-detail').textContent=message||'The feed is unavailable right now. Try this channel again in a moment.';
     status('error','Unavailable',state.selected?`${feedLabel()} unavailable · Try another feed or channel`:'Try again in a moment');
   }
@@ -251,6 +339,7 @@
     clearTimeout(state.retryTimer);clearTimeout(state.stallTimer);
     const generation=++state.generation;
     clearArchive();
+    sessionStart=null;mediaAnchor=null;tap=null;pointerStart=null;clearTimeout(seekFeedbackTimer);$('seek-feedback').hidden=true;
     resetWatchSample();
     const muted=state.muted,volume=state.volume;
     state.hls?.destroy();state.hls=null;
@@ -268,6 +357,7 @@
     $('idle-slate').hidden=true;$('error-overlay').hidden=true;$('loading-overlay').hidden=false;
     $('loading-text').textContent=options.automatic?`${feedProgress('Trying')}…`:`Tuning in to ${names[channel.id]||channel.name}…`;
     $('go-live').disabled=true;$('quality-label').textContent='—';
+    $('seek-back').disabled=true;$('seek-forward').disabled=true;
     status('loading','Connecting',feedProgress(options.automatic?'Trying':'Connecting to'));
     armStallTimer(state.startupDelay);
     const base=`/api/channels/${encodeURIComponent(channel.id)}`;
@@ -275,7 +365,7 @@
     if(channel.playbackType==='file'){void startArchive(base,generation);return;}
     const source=state.feed.legacy?`${base}/playlist.m3u8`:`${base}/feeds/${encodeURIComponent(state.feed.id)}/playlist.m3u8`;
     if(window.Hls?.isSupported()) {
-      const hls=new Hls({enableWorker:true,lowLatencyMode:false,liveSyncDurationCount:2,liveMaxLatencyDurationCount:5,maxBufferLength:24,backBufferLength:20,capLevelToPlayerSize:true});
+      const hls=new Hls({enableWorker:true,lowLatencyMode:false,liveSyncDurationCount:2,liveMaxLatencyDurationCount:Infinity,maxBufferLength:24,backBufferLength:rewindLimit,capLevelToPlayerSize:true});
       state.hls=hls;
       hls.on(Hls.Events.MEDIA_ATTACHED,()=>{if(generation===state.generation)hls.loadSource(source);});
       hls.on(Hls.Events.MANIFEST_PARSED,()=>{if(generation===state.generation){$('go-live').disabled=false;tryPlay();}});
@@ -312,7 +402,7 @@
   function toggleMute(){video.muted=!(video.muted||video.volume===0);if(!video.muted&&video.volume===0)video.volume=0.5;state.muted=video.muted;state.volume=video.volume;saveAudio();updateAudio();}
   $('mute-toggle').addEventListener('click',toggleMute);
   $('volume').addEventListener('input',event=>{video.volume=Number(event.target.value)/100;video.muted=video.volume===0;state.volume=video.volume;state.muted=video.muted;saveAudio();updateAudio();});
-  $('go-live').addEventListener('click',()=>{if(archivePlayback){nativeSuspended=false;continueArchive();return;}const position=state.hls?.liveSyncPosition;if(Number.isFinite(position))video.currentTime=position;tryPlay(true);});
+  $('go-live').addEventListener('click',()=>{if(archivePlayback){nativeSuspended=false;continueArchive();return;}const position=livePosition();if(Number.isFinite(position)){resetWatchSample();video.currentTime=position;state.lastTime=position;state.lastProgressAt=Date.now();}updateSeekControls();tryPlay(true);});
   $('theater').addEventListener('click',()=>setTheater(!theater));
   window.charliflixBack=()=>{if(window.CharliflixSettings?.isOpen()){window.CharliflixSettings.close();return true;}if(guideController?.isOpen()){guideController.close();return true;}if(theater){setTheater(false);return true;}return false;};
   document.addEventListener('keydown',event=>{
@@ -330,20 +420,23 @@
   controls.addEventListener('focusin',showTheaterControls);
   controls.addEventListener('focusout',showTheaterControls);
   controls.addEventListener('pointerleave',showTheaterControls);
-  $('fullscreen').addEventListener('click',async()=>{try{if(document.fullscreenElement)await document.exitFullscreen();else{video.controls=true;await video.requestFullscreen();}}catch{video.controls=false;$('playback-note').textContent='Fullscreen needs an active browser window';}});
-  document.addEventListener('fullscreenchange',()=>{video.controls=document.fullscreenElement===video;$('fullscreen').setAttribute('aria-label',document.fullscreenElement?'Exit fullscreen':'Enter fullscreen');});
+  $('fullscreen').addEventListener('click',async()=>{try{if(document.fullscreenElement)await document.exitFullscreen();else if(stage.requestFullscreen)await stage.requestFullscreen();else{video.controls=true;await video.requestFullscreen();}}catch{video.controls=false;$('playback-note').textContent='Fullscreen needs an active browser window';}});
+  document.addEventListener('fullscreenchange',()=>{video.controls=document.fullscreenElement===video;$('fullscreen').setAttribute('aria-label',document.fullscreenElement?'Exit fullscreen':'Enter fullscreen');if(document.fullscreenElement===stage)$('play-toggle').focus();showTheaterControls();});
   function playbackStarted() {
     // First playback needs a fresh deadline even after a long metadata load or seek.
     // Repeated media events at the same position must not extend a stalled feed.
     if(!state.receivedPlayback||state.recoverableStall||document.body.dataset.playback==='paused'||Math.abs(video.currentTime-state.lastTime)>0.05)state.lastProgressAt=Date.now();
     state.lastTime=video.currentTime;state.receivedPlayback=true;state.recoverableStall=false;state.fallbackFrom='';
+    if(sessionStart===null)sessionStart=video.currentTime;
+    if(!mediaAnchor)mediaAnchor={position:video.currentTime,time:Date.now()-Math.max(0,livePosition()-video.currentTime)*1000};
     $('idle-slate').hidden=true;$('error-overlay').hidden=true;$('loading-overlay').hidden=true;$('go-live').disabled=false;
     status('playing',archivePlayback?'Archive':'Live',archivePlayback?`${archivePlayback.programTitle} · Charliflix rotation`:`Watching live · ${feedLabel()}`);
-    showQuality();showTheaterControls();armStallTimer();armArchive();
+    showQuality();showTheaterControls();armStallTimer();armArchive();updateSeekControls();
   }
   video.addEventListener('playing',()=>{if(state.started&&!nativeSuspended&&!video.paused&&!video.error&&($('error-overlay').hidden||state.recoverableStall))playbackStarted();});
   video.addEventListener('waiting',()=>{if(state.started&&!nativeSuspended&&$('error-overlay').hidden&&(!video.paused||!state.receivedPlayback)){$('loading-overlay').hidden=false;$('loading-text').textContent=`${feedProgress('Buffering')}…`;status('buffering','Buffering',feedProgress('Waiting for'));armStallTimer(state.receivedPlayback?playbackDelay():state.startupDelay);}});
   video.addEventListener('timeupdate',()=>{
+    updateSeekControls();
     if(!state.started||nativeSuspended||video.paused||video.seeking||video.error){watchSample=null;return;}
     if(!$('error-overlay').hidden){
       if(!state.recoverableStall||!archivePlayback||video.readyState<2||video.currentTime-state.lastTime<=0.05)return;
@@ -354,12 +447,14 @@
     if(Math.abs(video.currentTime-state.lastTime)>0.05){state.lastTime=video.currentTime;state.lastProgressAt=Date.now();armStallTimer();}
   });
   video.addEventListener('seeking',resetWatchSample);
+  video.addEventListener('progress',updateSeekControls);
+  video.addEventListener('seeked',()=>{updateSeekControls();if(archiveShifted)armArchive();});
   video.addEventListener('pause',()=>{resetWatchSample();showTheaterControls();if(state.started&&state.receivedPlayback&&$('error-overlay').hidden){clearTimeout(state.stallTimer);$('loading-overlay').hidden=true;status('paused','Paused','Paused · Press play to resume');}});
   video.addEventListener('error',()=>{if(state.started&&!state.hls&&$('error-overlay').hidden)advanceFeed('The player could not read this feed.');});
   video.addEventListener('ended',()=>{if(archivePlayback&&$('error-overlay').hidden)continueArchive();});
   video.addEventListener('loadedmetadata',()=>{if(!archivePlayback)return;if(archiveExpired()){continueArchive();return;}const target=archivePlayback.startTime+(Date.now()-archivePlayback.receivedAt)/1000;if(Number.isFinite(video.duration)&&target>=video.duration){fail('The archive recording is shorter than its published schedule.');return;}try{video.currentTime=Math.min(archivePlayback.trimEnd-0.05,target);state.lastTime=video.currentTime;void tryPlay();}catch{fail('The archive recording could not seek to the current show.');}});
   video.addEventListener('volumechange',()=>{state.muted=video.muted;state.volume=video.volume;updateAudio();saveAudio();});video.addEventListener('loadedmetadata',showQuality);video.addEventListener('resize',showQuality);
-  window.addEventListener('pagehide',()=>{resetWatchSample();clearTimeout(state.retryTimer);clearTimeout(state.stallTimer);clearTimeout(controlsTimer);clearArchive();guideController?.destroy();state.hls?.destroy();});
+  window.addEventListener('pagehide',()=>{resetWatchSample();clearTimeout(state.retryTimer);clearTimeout(state.stallTimer);clearTimeout(controlsTimer);clearTimeout(seekFeedbackTimer);clearArchive();guideController?.destroy();state.hls?.destroy();});
   try { setTheater(localStorage.getItem('channel-room:theater') === 'true'); } catch {}
   updateAudio();
   fetch('/api/channels').then(response=>{if(!response.ok)throw new Error('The channel list is unavailable.');return response.json();}).then(data=>{state.channels=data.channels.filter(channel=>channel.enabled!==false);renderChannels(state.channels);let last='339';try{last=localStorage.getItem('channel-room:last-channel')||last;}catch{}const initial=state.channels.find(channel=>String(channel.id)===last)||state.channels[0];if(initial){select(initial);state.feed=preferredFeed(initial);renderFeeds(initial,state.feed);}else fail('No channels are configured.');if(window.CharliflixGuide&&window.CharliflixGuideModel){guideController=window.CharliflixGuide.create({channels:state.channels,channelName:channel=>names[channel.id]||channel.name,onCurrentProgrammes:programmes=>{currentProgrammes=programmes;},onTune:id=>{const channel=state.channels.find(item=>item.id===String(id));if(channel){nativeSuspended=false;start(channel);}}});}}).catch(error=>fail(error.message));
