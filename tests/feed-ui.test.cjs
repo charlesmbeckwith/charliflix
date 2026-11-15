@@ -69,6 +69,7 @@ async function player(channels = [channel()], stored = {}, options = {}) {
     pause() { this.paused = true; this.emit('pause'); }
     load() { this.currentTime = 0; }
     play() { this.paused = false; this.playCalls = (this.playCalls || 0) + 1; return Promise.resolve(); }
+    canPlayType() { return options.nativeHls?'probably':''; }
     focus() { document.activeElement = this; }
     closest() { return this.editable ? this : null; }
     getBoundingClientRect() { return { x: 180, y: 80, width: 520, height: 300 }; }
@@ -99,9 +100,9 @@ async function player(channels = [channel()], stored = {}, options = {}) {
 
   class Hls {
     static instances = [];
-    static Events = { MEDIA_ATTACHED: 'attached', MANIFEST_PARSED: 'manifest', LEVEL_SWITCHED: 'level', ERROR: 'error' };
+    static Events = { MEDIA_ATTACHED: 'attached', MANIFEST_PARSED: 'manifest', LEVEL_SWITCHED: 'level', LEVEL_UPDATED:'level-updated', ERROR: 'error' };
     static ErrorTypes = { NETWORK_ERROR: 'network', MEDIA_ERROR: 'media' };
-    static isSupported() { return true; }
+    static isSupported() { return !options.nativeHls; }
     constructor(config) { this.config=config; this.events = {}; this.levels = []; this.currentLevel = -1; Hls.instances.push(this); }
     on(event, callback) { this.events[event] = callback; }
     emit(event, data = {}) { this.events[event]?.(event, data); }
@@ -791,9 +792,12 @@ test('fit toggles cropping without changing playback and restores the saved choi
 
 test('HLS rewind uses retained video, respects session start and does not force latency catch-up',async()=>{
   const p=await seekPlayer(),video=p.get('video');
-  assert.equal(p.current.config.backBufferLength,300);
+  assert.equal(p.current.config.backBufferLength,285);
+  assert.equal(p.current.config.maxBufferLength,39);
   assert.equal(p.current.config.liveMaxLatencyDurationCount,Infinity);
   p.click('seek-back');assert.equal(video.currentTime,165,'retained media outside the current playlist remains available');
+  assert.equal(p.current.config.maxBufferLength,54,'forward buffer continues fetching the live segments through intentional delay');
+  assert.equal(p.current.config.backBufferLength,270,'the total behind-live retention budget remains bounded');
   for(let i=0;i<8;i++)p.click('seek-back');
   assert.equal(video.currentTime,100,'cannot rewind before first playback after tuning');
   assert.equal(p.get('seek-back').disabled,true);
@@ -898,4 +902,26 @@ test('buffering at an archive transition cannot cut a rewound recording short',a
   p.elapse(20000);video.currentTime=125;video.emit('timeupdate');
   p.elapse(5000);await p.flush();assert.equal(calls,1,'timer checks actual media progress, not just elapsed wall time');
   video.currentTime=145;video.emit('timeupdate');await p.flush();assert.equal(calls,2);
+});
+
+
+test('native HLS seeks within available ranges and LIVE returns to its edge without Hls.js',async()=>{
+  const p=await player([channel()],{}, {nativeHls:true});
+  p.click('start-watching');await p.flush();const video=p.get('video');
+  video.currentTime=100;p.playing();video.seekable=timeRanges([[0,200]]);video.currentTime=180;video.emit('timeupdate');
+  p.click('seek-back');assert.equal(video.currentTime,165);assert.equal(p.attempts.length,0);
+  p.click('go-live');assert.equal(video.currentTime,199.9);
+  assert.equal(video.paused,false);
+});
+
+
+test('playlist refresh retains live segments while paused and resume skips video lost beyond the retention window',async()=>{
+  const p=await seekPlayer(),video=p.get('video');video.pause();
+  p.current.liveSyncPosition=300;p.current.emit('level-updated');
+  assert.equal(p.current.config.maxBufferLength,144);assert.equal(p.current.config.backBufferLength,180);
+  assert.equal(p.current.config.maxMaxBufferLength,324);
+  p.current.liveSyncPosition=600;video.buffered=timeRanges([[310,500]]);
+  p.click('play-toggle');assert.equal(video.currentTime,310.05);assert.equal(video.paused,false);
+  video.pause();p.current.liveSyncPosition=1000;video.buffered=timeRanges([[310,500]]);
+  p.click('play-toggle');assert.equal(video.currentTime,1000,'resume rejoins live if the entire old buffer expired');
 });

@@ -205,6 +205,14 @@
     return ranges(state.hls?video.buffered:video.seekable).map(([start,end])=>[Math.max(start+0.05,floor),Math.min(end-0.1,ceiling)]).filter(([start,end])=>end>=start);
   }
   function updateSeekControls() {
+    // Keep downloading the intervening live segments while watching behind.
+    // Otherwise a short forward buffer can stop loading until the playlist
+    // has already dropped the segments needed to bridge back to live.
+    if(state.hls?.config){
+      const delay=Math.min(rewindLimit,Math.max(0,livePosition()-video.currentTime));
+      state.hls.config.maxBufferLength=24+delay;
+      state.hls.config.backBufferLength=Math.max(0,rewindLimit-delay);
+    }
     const available=seekRanges(),position=video.currentTime;
     $('seek-back').disabled=!available.some(([start])=>start<position-0.2);
     $('seek-forward').disabled=!available.some(([,end])=>end>position+0.2);
@@ -333,7 +341,16 @@
     $('error-detail').textContent=message||'The feed is unavailable right now. Try this channel again in a moment.';
     status('error','Unavailable',state.selected?`${feedLabel()} unavailable · Try another feed or channel`:'Try again in a moment');
   }
-  async function tryPlay(userInitiated=false) { if(nativeSuspended&&!userInitiated)return;if(archiveExpired()){nativeSuspended=false;continueArchive();return;}if(nativeSuspended){nativeSuspended=false;state.hls?.startLoad();}const generation=state.generation;if(document.body.dataset.playback==='paused'){state.lastProgressAt=Date.now();armStallTimer(state.selected?.playbackType==='file'?(state.receivedPlayback?playbackDelay():state.startupDelay):35000);}try { await video.play(); } catch(error) { if(generation!==state.generation)return;if(error.name==='NotAllowedError'){clearTimeout(state.stallTimer);$('loading-overlay').hidden=true;status('paused','Press play','Press play to start with sound');}else if(error.name!=='AbortError'){advanceFeed('The player could not start this feed.');} } }
+  async function tryPlay(userInitiated=false) { if(nativeSuspended&&!userInitiated)return;if(archiveExpired()){nativeSuspended=false;continueArchive();return;}if(nativeSuspended){nativeSuspended=false;state.hls?.startLoad();}const generation=state.generation;
+    if(userInitiated&&state.receivedPlayback&&!archivePlayback){
+      const available=seekRanges();
+      if(!available.some(([start,end])=>video.currentTime>=start&&video.currentTime<=end)){
+        const position=available.find(([,end])=>end>video.currentTime)?.[0]??livePosition();
+        if(Number.isFinite(position)){resetWatchSample();video.currentTime=position;state.lastTime=position;if(!available.length)state.hls?.startLoad(position);seekFeedback('Earlier video is no longer buffered','forward');}
+      }
+      updateSeekControls();
+    }
+    if(document.body.dataset.playback==='paused'){state.lastProgressAt=Date.now();armStallTimer(state.selected?.playbackType==='file'?(state.receivedPlayback?playbackDelay():state.startupDelay):35000);}try { await video.play(); } catch(error) { if(generation!==state.generation)return;if(error.name==='NotAllowedError'){clearTimeout(state.stallTimer);$('loading-overlay').hidden=true;status('paused','Press play','Press play to start with sound');}else if(error.name!=='AbortError'){advanceFeed('The player could not start this feed.');} } }
   function showQuality(){ const level=state.hls?.currentLevel; const info=level>=0?state.hls.levels[level]:null; const height=video.videoHeight||info?.height; $('quality-label').textContent=height?`${height}p`:'—'; }
   function start(channel, options={}) {
     clearTimeout(state.retryTimer);clearTimeout(state.stallTimer);
@@ -365,11 +382,12 @@
     if(channel.playbackType==='file'){void startArchive(base,generation);return;}
     const source=state.feed.legacy?`${base}/playlist.m3u8`:`${base}/feeds/${encodeURIComponent(state.feed.id)}/playlist.m3u8`;
     if(window.Hls?.isSupported()) {
-      const hls=new Hls({enableWorker:true,lowLatencyMode:false,liveSyncDurationCount:2,liveMaxLatencyDurationCount:Infinity,maxBufferLength:24,backBufferLength:rewindLimit,capLevelToPlayerSize:true});
+      const hls=new Hls({enableWorker:true,lowLatencyMode:false,liveSyncDurationCount:2,liveMaxLatencyDurationCount:Infinity,maxBufferLength:24,maxMaxBufferLength:rewindLimit+24,backBufferLength:rewindLimit,capLevelToPlayerSize:true});
       state.hls=hls;
       hls.on(Hls.Events.MEDIA_ATTACHED,()=>{if(generation===state.generation)hls.loadSource(source);});
       hls.on(Hls.Events.MANIFEST_PARSED,()=>{if(generation===state.generation){$('go-live').disabled=false;tryPlay();}});
       hls.on(Hls.Events.LEVEL_SWITCHED,showQuality);
+      hls.on(Hls.Events.LEVEL_UPDATED,()=>{if(generation===state.generation)updateSeekControls();});
       hls.on(Hls.Events.ERROR,(_event,data)=>{
         if(generation!==state.generation||!data.fatal)return;
         if(data.type===Hls.ErrorTypes.NETWORK_ERROR&&!/^manifest/i.test(data.details||'')&&state.retries<2){state.retries++;status('buffering','Reconnecting',feedProgress('Reconnecting to'));state.retryTimer=setTimeout(()=>{if(generation===state.generation)hls.startLoad();},state.retries*1500);}
